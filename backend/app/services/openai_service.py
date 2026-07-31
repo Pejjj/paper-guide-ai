@@ -9,6 +9,15 @@ from app.config import get_settings
 from app.models import PodcastResponse, ReadingRouteResponse
 
 T = TypeVar("T", bound=BaseModel)
+SECRET_PATTERN = re.compile(r"\b(?:sk|sess)-[A-Za-z0-9_-]{8,}\b")
+
+
+def safe_error_message(exc: Exception) -> str:
+    message = str(exc) or type(exc).__name__
+    api_key = get_settings().openai_api_key
+    if api_key:
+        message = message.replace(api_key, "[REDACTED]")
+    return SECRET_PATTERN.sub("[REDACTED]", message)[:1_000]
 
 
 def _client() -> OpenAI:
@@ -82,4 +91,3 @@ def synthesize_speech(script: str) -> bytes:
     settings = get_settings()
     response = _client().audio.speech.create(model=settings.openai_tts_model, voice=settings.openai_tts_voice, input=script, response_format="mp3")
     return response.content
-

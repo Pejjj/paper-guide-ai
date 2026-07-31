@@ -1,3 +1,4 @@
+import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,10 +18,13 @@ from app.services import openai_service
 from app.services.supabase_service import document_pages, get_supabase, owned_document, require_user_id
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 
 def _openai_unavailable(exc: Exception) -> HTTPException:
-    detail = str(exc) if isinstance(exc, RuntimeError) else "OpenAI request failed. Please try again shortly."
+    safe_message = openai_service.safe_error_message(exc)
+    logger.exception("OpenAI request failed (%s): %s", type(exc).__name__, safe_message)
+    detail = safe_message if isinstance(exc, RuntimeError) else "OpenAI request failed. Please try again shortly."
     return HTTPException(status_code=503, detail=detail)
 
 

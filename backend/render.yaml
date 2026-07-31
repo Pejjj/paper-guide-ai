@@ -11,10 +11,11 @@ services:
         value: 3.12.7
       - key: OPENAI_API_KEY
         sync: false
+      - key: DEBUG_TOKEN
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URL
         sync: false
-

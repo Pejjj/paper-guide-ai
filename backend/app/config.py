@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"
+    debug_token: str = ""
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     supabase_pdf_bucket: str = "pdfs"
@@ -27,4 +28,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

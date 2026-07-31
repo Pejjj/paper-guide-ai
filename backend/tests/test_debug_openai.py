@@ -83,3 +83,29 @@ def test_debug_openai_redacts_key_from_safe_error(monkeypatch) -> None:
     assert response.json()["safe_error_type"] == "ValueError"
     assert settings.openai_api_key not in response.text
     assert "[REDACTED]" in response.json()["safe_error_message"]
+
+
+def test_debug_llm_reports_selected_provider_without_exposing_key(monkeypatch) -> None:
+    settings = SimpleNamespace(
+        debug_token="correct-token",
+        llm_provider="gemini",
+        gemini_api_key="gemini-test-key",
+        gemini_model="gemini-2.5-flash",
+        openai_api_key="",
+        openai_model="gpt-4o-mini",
+    )
+    monkeypatch.setattr(debug, "get_settings", lambda: settings)
+    monkeypatch.setattr(openai_service, "provider_sdk_available", lambda selected: True)
+    monkeypatch.setattr(openai_service, "test_llm_provider", lambda: "ok")
+
+    response = client.get("/debug/llm?token=correct-token")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["provider"] == "gemini"
+    assert body["model"] == "gemini-2.5-flash"
+    assert body["provider_api_key_set"] is True
+    assert body["provider_available"] is True
+    assert body["test_result"] == "success"
+    assert body["output_text"] == "ok"
+    assert settings.gemini_api_key not in response.text

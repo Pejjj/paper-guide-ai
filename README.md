@@ -5,10 +5,10 @@ PaperGuide AI is an MVP guided-reading workspace for research papers, manuals, a
 ## Architecture
 
 - `frontend/`: Next.js App Router, TypeScript, Tailwind CSS, `react-pdf`, and the Supabase browser client.
-- `backend/`: FastAPI, PyMuPDF page extraction, OpenAI structured generation/TTS, and the Supabase service client.
+- `backend/`: FastAPI, PyMuPDF page extraction, selectable OpenAI/Gemini generation, OpenAI TTS, and the Supabase service client.
 - `supabase/schema.sql`: Postgres tables, indexes, row-level security, and private storage buckets.
 
-All OpenAI calls and service-role operations stay in the backend. PDFs and generated audio use private Supabase buckets; the API returns signed URLs that expire after one hour. The frontend sends a Supabase user access token with each private request. For a frictionless MVP, it creates an anonymous Supabase user when no session exists.
+All LLM-provider calls and service-role operations stay in the backend. PDFs and generated audio use private Supabase buckets; the API returns signed URLs that expire after one hour. The frontend sends a Supabase user access token with each private request. For a frictionless MVP, it creates an anonymous Supabase user when no session exists.
 
 ## Local setup
 
@@ -62,7 +62,7 @@ cp .env.example .env
 uvicorn main:app --reload
 ```
 
-Required backend variables are `OPENAI_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`. Set `FRONTEND_URL=http://localhost:3000`. Optional settings choose the OpenAI text/TTS models, voice, bucket names, upload limit, and additional comma-separated CORS origins.
+Set `LLM_PROVIDER=openai` with `OPENAI_API_KEY`, or `LLM_PROVIDER=gemini` with `GEMINI_API_KEY`. Gemini defaults to `gemini-2.5-flash`; OpenAI remains the default provider. TTS is available only with `LLM_PROVIDER=openai`; Gemini mode returns `501` for that endpoint. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are always required. Set `FRONTEND_URL=http://localhost:3000`. Optional settings choose models, voice, bucket names, upload limit, and additional comma-separated CORS origins.
 
 Open [http://localhost:3000](http://localhost:3000). The API health check is [http://localhost:8000/health](http://localhost:8000/health), and interactive API docs are at [http://localhost:8000/docs](http://localhost:8000/docs).
 
@@ -137,4 +137,3 @@ PyMuPDF extracts each page separately. Lightweight heuristics flag uppercase, nu
 - Keep `pdfs` and `audio` private. Access is through expiring signed URLs.
 - RLS protects application rows, and the backend checks ownership before reading document pages, notes, or generated artifacts.
 - For production, add rate limits, file malware scanning, retention/deletion policies, audit logging, and stricter content/size controls.
-

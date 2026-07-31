@@ -21,10 +21,15 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
 
 
-def _openai_unavailable(exc: Exception) -> HTTPException:
+def _llm_unavailable(exc: Exception) -> HTTPException:
     safe_message = openai_service.safe_error_message(exc)
-    logger.exception("OpenAI request failed (%s): %s", type(exc).__name__, safe_message)
-    detail = safe_message if isinstance(exc, RuntimeError) else "OpenAI request failed. Please try again shortly."
+    logger.exception(
+        "%s provider request failed (%s): %s",
+        get_settings().llm_provider,
+        type(exc).__name__,
+        safe_message,
+    )
+    detail = safe_message if isinstance(exc, RuntimeError) else "LLM provider request failed. Please try again shortly."
     return HTTPException(status_code=503, detail=detail)
 
 
@@ -42,7 +47,7 @@ def create_reading_route(payload: DocumentRequest, user_id: str = Depends(requir
     try:
         result = openai_service.reading_route(document["title"], pages)
     except Exception as exc:
-        raise _openai_unavailable(exc) from exc
+        raise _llm_unavailable(exc) from exc
     get_supabase().table("reading_routes").insert({"document_id": str(payload.document_id), "user_id": user_id, "route": result.model_dump(mode="json")}).execute()
     return result
 
@@ -53,7 +58,7 @@ def create_podcast(payload: PodcastRequest, user_id: str = Depends(require_user_
     try:
         result = openai_service.podcast_script(document["title"], pages, payload.duration_minutes)
     except Exception as exc:
-        raise _openai_unavailable(exc) from exc
+        raise _llm_unavailable(exc) from exc
     get_supabase().table("podcast_scripts").insert({"document_id": str(payload.document_id), "user_id": user_id, "episode_title": result.episode_title, "duration_minutes": result.duration_minutes, "script": result.script, "payload": result.model_dump(mode="json")}).execute()
     return result
 
@@ -64,7 +69,7 @@ def ask_document(payload: AskRequest, user_id: str = Depends(require_user_id)) -
     try:
         return AskResponse(answer=openai_service.answer_question(payload.question, pages))
     except Exception as exc:
-        raise _openai_unavailable(exc) from exc
+        raise _llm_unavailable(exc) from exc
 
 
 @router.post("/text-to-speech", response_model=TTSResponse)
@@ -72,8 +77,12 @@ def text_to_speech(payload: TTSRequest, user_id: str = Depends(require_user_id))
     owned_document(str(payload.document_id), user_id)
     try:
         audio = openai_service.synthesize_speech(payload.script)
+    except openai_service.ProviderCapabilityError as exc:
+        safe_message = openai_service.safe_error_message(exc)
+        logger.warning("LLM provider does not support TTS: %s", safe_message)
+        raise HTTPException(status_code=501, detail=safe_message) from exc
     except Exception as exc:
-        raise _openai_unavailable(exc) from exc
+        raise _llm_unavailable(exc) from exc
     generation_id = str(uuid4())
     path = f"{user_id}/{payload.document_id}/audio/{generation_id}.mp3"
     bucket = get_settings().supabase_audio_bucket

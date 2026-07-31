@@ -1,14 +1,18 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    llm_provider: Literal["openai", "gemini"] = "openai"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_tts_model: str = "tts-1"
     openai_tts_voice: str = "alloy"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
     debug_token: str = ""
     supabase_url: str = ""
     supabase_service_role_key: str = ""

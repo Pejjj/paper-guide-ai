@@ -6,7 +6,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
-from app.models import PodcastResponse, ReadingRouteResponse
+from app.models import PodcastCue, PodcastResponse, ReadingRouteResponse
 
 T = TypeVar("T", bound=BaseModel)
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -135,9 +135,69 @@ def reading_route(title: str, pages: list[dict[str, Any]]) -> ReadingRouteRespon
 
 
 def podcast_script(title: str, pages: list[dict[str, Any]], duration: int) -> PodcastResponse:
-    system = """You write an engaging single-host tutor podcast grounded only in supplied PDF text. Cite page numbers conversationally when supported. Never claim an exact page/table/figure unless present in the provided page block or detection metadata. When extraction is missing, say so. Build pauses and page directions that help the listener inspect the PDF."""
-    prompt = f"Write a roughly {duration}-minute guided explanation of {title!r}. The script should sound natural when spoken aloud.\n{_page_context(pages)}"
-    return _structured(system, prompt, PodcastResponse)
+    system = """You create a guided document walkthrough grounded only in the supplied extracted PDF text and detection metadata. Return a short sequence of narration cues that a browser can speak one at a time while moving through the PDF.
+
+Rules for every cue:
+- Keep narration_text short: one to three sentences and no more than about 70 words.
+- Use the page number from the PAGE block containing the supporting text. Use null only when no page can be established.
+- quote_to_highlight must be a short exact verbatim excerpt from that same page, or null when no reliable excerpt is available.
+- Use highlight only with a reliable exact quote. Use scroll to move to a supported page, and pause for a reflection cue that does not require navigation.
+- Use inspect_table or inspect_figure only when Table, Figure, or Fig. is visible in that page's extracted text or detected references. Never infer a visual from the topic alone.
+- narration_text must explain or paraphrase content supported by that page. Acknowledge missing or failed extraction instead of filling gaps.
+- Give every cue a unique stable cue_id, a realistic estimated_seconds value, and an importance level.
+
+Keep the existing compatibility fields. script must be the readable full transcript in the same order as the cues; page_directions, pause_points, and chapter_7_takeaways should remain concise."""
+    prompt = f"Create a roughly {duration}-minute guided-reading episode for {title!r}. Break it into short, sequential cues suitable for listen, scroll, inspect, pause, and continue playback.\n{_page_context(pages)}"
+    result = _structured(system, prompt, PodcastResponse)
+    result.cues = _ground_podcast_cues(result.cues, pages)
+    return result
+
+
+def _normalized(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _ground_podcast_cues(cues: list[PodcastCue], pages: list[dict[str, Any]]) -> list[PodcastCue]:
+    """Remove navigation claims that are not supported by the extracted page data."""
+    page_map = {int(page["page_number"]): page for page in pages}
+    grounded: list[PodcastCue] = []
+    used_ids: set[str] = set()
+
+    for index, cue in enumerate(cues, start=1):
+        page = page_map.get(cue.page_number) if cue.page_number is not None else None
+        if page is None:
+            cue.page_number = None
+            cue.quote_to_highlight = None
+            if cue.action != "pause":
+                cue.action = "pause"
+        else:
+            page_text = page.get("text") or ""
+            normalized_page = _normalized(page_text)
+            quote = (cue.quote_to_highlight or "").strip()
+            if not quote or _normalized(quote) not in normalized_page:
+                cue.quote_to_highlight = None
+                if cue.action == "highlight":
+                    cue.action = "scroll"
+
+            evidence = " ".join(
+                [page_text, *(page.get("detected_references") or [])]
+            ).casefold()
+            if cue.action == "inspect_table" and not re.search(r"\btable\b", evidence):
+                cue.action = "highlight" if cue.quote_to_highlight else "scroll"
+            if cue.action == "inspect_figure" and not re.search(r"\b(?:figure\b|fig\.)", evidence):
+                cue.action = "highlight" if cue.quote_to_highlight else "scroll"
+
+        base_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", cue.cue_id).strip("-") or f"cue-{index}"
+        unique_id = base_id
+        suffix = 2
+        while unique_id in used_ids:
+            unique_id = f"{base_id}-{suffix}"
+            suffix += 1
+        cue.cue_id = unique_id
+        used_ids.add(unique_id)
+        grounded.append(cue)
+
+    return grounded
 
 
 def _relevant_pages(question: str, pages: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:

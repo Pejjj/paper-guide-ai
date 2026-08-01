@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.models import ReadingRouteResponse, TTSRequest
+from app.models import PodcastCue, PodcastResponse, ReadingRouteResponse, TTSRequest
 from app.routes import ai
 from app.services import openai_service
 
@@ -126,3 +126,58 @@ def test_gemini_tts_route_returns_501(monkeypatch) -> None:
 
     assert raised.value.status_code == 501
     assert raised.value.detail == "Gemini TTS unavailable"
+
+
+def test_podcast_cues_are_grounded_against_extracted_pages(monkeypatch) -> None:
+    generated = PodcastResponse(
+        episode_title="Guided test",
+        duration_minutes=8,
+        script="A short walkthrough.",
+        page_directions=[],
+        pause_points=[],
+        chapter_7_takeaways=[],
+        cues=[
+            PodcastCue(
+                cue_id="key-result",
+                page_number=1,
+                quote_to_highlight="The measured result was 42 percent.",
+                narration_text="Notice the measured result.",
+                action="highlight",
+                estimated_seconds=8,
+                importance="high",
+            ),
+            PodcastCue(
+                cue_id="key-result",
+                page_number=1,
+                quote_to_highlight="Invented quote",
+                narration_text="Inspect a supposed figure.",
+                action="inspect_figure",
+                estimated_seconds=7,
+                importance="medium",
+            ),
+            PodcastCue(
+                cue_id="missing-page",
+                page_number=99,
+                quote_to_highlight="Missing text",
+                narration_text="This page does not exist.",
+                action="scroll",
+                estimated_seconds=6,
+                importance="low",
+            ),
+        ],
+    )
+    monkeypatch.setattr(openai_service, "_structured", lambda system, prompt, model_type: generated)
+
+    result = openai_service.podcast_script(
+        "Test paper",
+        [{"page_number": 1, "text": "The measured result was 42 percent.", "detected_references": []}],
+        8,
+    )
+
+    assert result.cues[0].action == "highlight"
+    assert result.cues[0].quote_to_highlight == "The measured result was 42 percent."
+    assert result.cues[1].cue_id == "key-result-2"
+    assert result.cues[1].quote_to_highlight is None
+    assert result.cues[1].action == "scroll"
+    assert result.cues[2].page_number is None
+    assert result.cues[2].action == "pause"

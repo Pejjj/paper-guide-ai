@@ -51,6 +51,16 @@ class PodcastRequest(DocumentRequest):
     duration_minutes: int = Field(default=8, ge=3, le=20)
 
 
+class PodcastCue(BaseModel):
+    cue_id: str = Field(min_length=1, max_length=80)
+    page_number: int | None = Field(default=None, ge=1)
+    quote_to_highlight: str | None = Field(default=None, max_length=300)
+    narration_text: str = Field(min_length=1, max_length=700)
+    action: Literal["scroll", "highlight", "pause", "inspect_table", "inspect_figure"]
+    estimated_seconds: int = Field(ge=2, le=90)
+    importance: Literal["high", "medium", "low"]
+
+
 class PodcastResponse(BaseModel):
     episode_title: str
     duration_minutes: int
@@ -58,6 +68,7 @@ class PodcastResponse(BaseModel):
     page_directions: list[str]
     pause_points: list[str]
     chapter_7_takeaways: list[str]
+    cues: list[PodcastCue]
 
 
 class AskRequest(DocumentRequest):
@@ -87,4 +98,3 @@ class NoteOut(BaseModel):
     content: str
     page_number: int | None
     created_at: datetime
-

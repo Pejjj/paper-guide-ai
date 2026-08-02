@@ -16,6 +16,8 @@ class DocumentOut(BaseModel):
     signed_url: str | None = None
     is_sample: bool = False
     source_url: str | None = None
+    subtitle: str | None = None
+    source_attribution: str | None = None
     read_only: bool = False
 
 

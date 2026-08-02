@@ -2,7 +2,7 @@
 
 PaperGuide AI is a free educational demo for technical papers, reports, chapters, and manuals. A reader can try an attributed public sample or upload a non-sensitive PDF, map its chapters and sections, generate a page-grounded route, listen to a browser-narrated walkthrough, ask scoped questions, refine AI responses, and save or export notes.
 
-The public sample is NIST's *Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1*, available from https://doi.org/10.6028/NIST.AI.100-1. The backend creates the shared read-only sample record on first use.
+The public sample is *Soils and Foundations Reference Manual, Volume I*, a Federal Highway Administration / National Highway Institute geotechnical reference (FHWA-NHI-06-088), available from https://rosap.ntl.bts.gov/view/dot/41551. The backend creates the shared read-only sample record on first use.
 
 > Free educational demo. Do not upload confidential, private, copyrighted, or sensitive documents. Uploaded files may be processed to generate grounded reading assistance. AI outputs may contain mistakes.
 
@@ -76,7 +76,7 @@ Open [http://localhost:3000](http://localhost:3000). The API health check is [ht
 | --- | --- | --- |
 | `GET` | `/health` | Service health |
 | `POST` | `/documents/upload` | Upload, extract, detect, and index a private PDF |
-| `GET` | `/documents/sample` | Create or open the shared read-only NIST sample |
+| `GET` | `/documents/sample` | Create or open the shared read-only FHWA/NHI sample |
 | `GET` | `/documents` | List the current user's documents |
 | `GET` | `/documents/{document_id}` | Get document metadata and a signed PDF URL |
 | `GET` | `/documents/{document_id}/pages/{page_number}` | Get extracted page text and detections |

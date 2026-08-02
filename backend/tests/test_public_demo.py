@@ -10,7 +10,7 @@ from app.models import (
     SectionIntroResponse,
     UpdateResponseRequest,
 )
-from app.routes import ai, analytics
+from app.routes import ai, analytics, documents
 from app.services import openai_service, supabase_service
 
 
@@ -88,3 +88,10 @@ def test_update_response_creates_version(monkeypatch) -> None:
     result = ai.update_response(payload, "user-id", "session-123")
     assert result.version_number == 2
     assert result.user_instruction == "Make it simpler"
+
+
+def test_fhwa_sample_presentation_is_read_only_and_attributed() -> None:
+    presented = documents._present_document({"is_sample": True, "metadata": {}})
+    assert presented["read_only"] is True
+    assert presented["subtitle"] == documents.SAMPLE_SUBTITLE
+    assert presented["source_attribution"] == "Federal Highway Administration / National Highway Institute, FHWA-NHI-06-088"

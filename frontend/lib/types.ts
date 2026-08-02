@@ -1,4 +1,4 @@
-export interface DocumentRecord { id: string; title: string; original_filename: string; storage_path: string; page_count: number | null; status: string; created_at: string; signed_url?: string; is_sample?: boolean; source_url?: string; read_only?: boolean; }
+export interface DocumentRecord { id: string; title: string; original_filename: string; storage_path: string; page_count: number | null; status: string; created_at: string; signed_url?: string; is_sample?: boolean; source_url?: string; subtitle?: string; source_attribution?: string; read_only?: boolean; }
 export interface RouteItem { priority: "Must read" | "Skim" | "Optional"; section_title: string; page_start: number | null; page_end: number | null; why_it_matters: string; what_to_extract: string[]; chapter_7_use: string; }
 export interface ReadingRoute { document_title: string; overall_goal: string; recommended_reading_order: RouteItem[]; skip_or_lightly_skim: string[]; key_tables_figures: string[]; citation_roles: string[]; }
 export type CueAction = "scroll" | "highlight" | "pause" | "inspect_table" | "inspect_figure" | "inspect_formula" | "compare_pages" | "checkpoint_question";

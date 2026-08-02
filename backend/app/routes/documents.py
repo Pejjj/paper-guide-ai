@@ -10,6 +10,18 @@ from app.services.pdf_service import extract_pdf
 from app.services.supabase_service import get_supabase, owned_document, require_user_id, track_event
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+SAMPLE_TITLE = "Soils and Foundations Reference Manual, Volume I"
+SAMPLE_SUBTITLE = "A classic FHWA/NHI geotechnical reference for soil mechanics, subsurface exploration, slope stability, and foundation design."
+SAMPLE_ATTRIBUTION = "Federal Highway Administration / National Highway Institute, FHWA-NHI-06-088"
+
+
+def _present_document(document: dict) -> dict:
+    document["read_only"] = bool(document.get("is_sample"))
+    if document.get("is_sample"):
+        metadata = document.get("metadata") or {}
+        document["subtitle"] = metadata.get("subtitle") or SAMPLE_SUBTITLE
+        document["source_attribution"] = metadata.get("source_attribution") or SAMPLE_ATTRIBUTION
+    return document
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
@@ -73,18 +85,17 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(r
 
 @router.get("", response_model=list[DocumentOut])
 def list_documents(user_id: str = Depends(require_user_id)) -> list[dict]:
-    response = get_supabase().table("documents").select("*").or_(f"user_id.eq.{user_id},is_sample.eq.true").order("created_at", desc=True).execute()
-    rows = response.data or []
-    for row in rows:
-        row["read_only"] = bool(row.get("is_sample"))
-    return rows
+    client = get_supabase()
+    owned = client.table("documents").select("*").eq("user_id", user_id).order("created_at", desc=True).execute().data or []
+    sample = client.table("documents").select("*").eq("is_sample", True).eq("source_url", get_settings().sample_source_url).limit(1).execute().data or []
+    return [_present_document(row) for row in [*sample, *owned]]
 
 
 @router.get("/sample", response_model=DocumentOut)
 def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> dict:
     settings = get_settings()
     client = get_supabase()
-    existing = client.table("documents").select("*").eq("is_sample", True).limit(1).execute().data
+    existing = client.table("documents").select("*").eq("is_sample", True).eq("source_url", settings.sample_source_url).limit(1).execute().data
     if existing:
         document = existing[0]
     else:
@@ -95,17 +106,23 @@ def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_se
             if not pages:
                 raise ValueError("The sample PDF has no extractable pages.")
             document_id = str(uuid4())
-            storage_path = f"samples/{document_id}/NIST.AI.100-1.pdf"
+            storage_path = f"samples/{document_id}/FHWA-NHI-06-088.pdf"
             client.storage.from_(settings.supabase_pdf_bucket).upload(storage_path, response.content, {"content-type": "application/pdf", "upsert": "false"})
             document = client.table("documents").insert({
                 "id": document_id,
                 "user_id": None,
-                "title": "Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1",
-                "original_filename": "NIST.AI.100-1.pdf",
+                "title": SAMPLE_TITLE,
+                "original_filename": "FHWA-NHI-06-088.pdf",
                 "storage_path": storage_path,
                 "page_count": len(pages),
                 "status": "ready",
-                "metadata": {**metadata, "source": "NIST", "source_url": settings.sample_source_url},
+                "metadata": {
+                    **metadata,
+                    "source": "FHWA/NHI",
+                    "source_url": settings.sample_source_url,
+                    "subtitle": SAMPLE_SUBTITLE,
+                    "source_attribution": SAMPLE_ATTRIBUTION,
+                },
                 "is_sample": True,
                 "source_url": settings.sample_source_url,
             }).execute().data[0]
@@ -122,9 +139,8 @@ def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_se
             raise HTTPException(status_code=503, detail="The public sample is being prepared. Please try again shortly.") from exc
     signed = client.storage.from_(settings.supabase_pdf_bucket).create_signed_url(document["storage_path"], 3600)
     document["signed_url"] = signed.get("signedURL") or signed.get("signedUrl")
-    document["read_only"] = True
-    track_event("sample_document_opened", "/documents/sample", x_anonymous_session_id, {"source": "NIST"})
-    return document
+    track_event("sample_document_opened", "/documents/sample", x_anonymous_session_id, {"source": "FHWA/NHI"})
+    return _present_document(document)
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
@@ -132,8 +148,7 @@ def get_document(document_id: str, user_id: str = Depends(require_user_id)) -> d
     document = owned_document(document_id, user_id)
     result = get_supabase().storage.from_(get_settings().supabase_pdf_bucket).create_signed_url(document["storage_path"], 3600)
     document["signed_url"] = result.get("signedURL") or result.get("signedUrl")
-    document["read_only"] = bool(document.get("is_sample"))
-    return document
+    return _present_document(document)
 
 
 @router.get("/{document_id}/pages/{page_number}", response_model=PageOut)

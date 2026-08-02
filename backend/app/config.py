@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     debug_token: str = ""
+    admin_token: str = ""
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     supabase_pdf_bucket: str = "pdfs"
@@ -21,6 +22,12 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     additional_cors_origins: str = ""
     max_upload_mb: int = Field(default=25, ge=1, le=100)
+    public_max_pages: int = Field(default=50, ge=1, le=500)
+    public_max_guided_readings_per_day: int = Field(default=3, ge=1, le=100)
+    public_max_questions_per_day: int = Field(default=20, ge=1, le=500)
+    public_max_section_intros_per_day: int = Field(default=10, ge=1, le=200)
+    sample_pdf_url: str = "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.100-1.pdf"
+    sample_source_url: str = "https://doi.org/10.6028/NIST.AI.100-1"
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

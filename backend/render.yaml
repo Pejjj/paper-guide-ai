@@ -19,9 +19,19 @@ services:
         value: gemini-2.5-flash
       - key: DEBUG_TOKEN
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: PUBLIC_MAX_PAGES
+        value: 50
+      - key: PUBLIC_MAX_GUIDED_READINGS_PER_DAY
+        value: 3
+      - key: PUBLIC_MAX_QUESTIONS_PER_DAY
+        value: 20
+      - key: PUBLIC_MAX_SECTION_INTROS_PER_DAY
+        value: 10

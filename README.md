@@ -1,6 +1,10 @@
 # PaperGuide AI
 
-PaperGuide AI is an MVP guided-reading workspace for research papers, manuals, and dissertation literature review. A reader uploads a private PDF, views it beside an AI guide, creates a prioritized reading route, generates a podcast-style explanation and audio, asks page-grounded questions, and saves or exports notes as Markdown.
+PaperGuide AI is a free educational demo for technical papers, reports, chapters, and manuals. A reader can try an attributed public sample or upload a non-sensitive PDF, map its chapters and sections, generate a page-grounded route, listen to a browser-narrated walkthrough, ask scoped questions, refine AI responses, and save or export notes.
+
+The public sample is NIST's *Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1*, available from https://doi.org/10.6028/NIST.AI.100-1. The backend creates the shared read-only sample record on first use.
+
+> Free educational demo. Do not upload confidential, private, copyrighted, or sensitive documents. Uploaded files may be processed to generate grounded reading assistance. AI outputs may contain mistakes.
 
 ## Architecture
 
@@ -8,14 +12,14 @@ PaperGuide AI is an MVP guided-reading workspace for research papers, manuals, a
 - `backend/`: FastAPI, PyMuPDF page extraction, selectable OpenAI/Gemini generation, OpenAI TTS, and the Supabase service client.
 - `supabase/schema.sql`: Postgres tables, indexes, row-level security, and private storage buckets.
 
-All LLM-provider calls and service-role operations stay in the backend. PDFs and generated audio use private Supabase buckets; the API returns signed URLs that expire after one hour. The frontend sends a Supabase user access token with each private request. For a frictionless MVP, it creates an anonymous Supabase user when no session exists.
+All LLM-provider calls and service-role operations stay in the backend. User PDFs use a private Supabase bucket; the API returns signed URLs that expire after one hour. The shared sample is read-only. The frontend creates an anonymous Supabase user when no session exists. Analytics contain only coarse events, paths, timestamps, random browser session IDs, and non-sensitive metadata—not document text, questions, answers, names, emails, or API keys.
 
 ## Local setup
 
 ### 1. Supabase
 
 1. Create a Supabase project.
-2. In **Authentication → Providers**, enable **Anonymous Sign-Ins**. Replace this with email, OAuth, or institutional SSO when desired.
+2. In **Authentication → Providers**, enable **Anonymous Sign-Ins**.
 3. Open the SQL editor and run [`supabase/schema.sql`](supabase/schema.sql). This creates the application tables, RLS policies, and private `pdfs` and `audio` buckets.
 4. If you prefer the dashboard, manually create private buckets named `pdfs` and `audio` instead. Never make either bucket public.
 5. Copy the project URL, anon key, and service-role key. The service-role key belongs only in the backend environment.
@@ -62,7 +66,7 @@ cp .env.example .env
 uvicorn main:app --reload
 ```
 
-Set `LLM_PROVIDER=openai` with `OPENAI_API_KEY`, or `LLM_PROVIDER=gemini` with `GEMINI_API_KEY`. Gemini defaults to `gemini-2.5-flash`; OpenAI remains the default provider. TTS is available only with `LLM_PROVIDER=openai`; Gemini mode returns `501` for that endpoint. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are always required. Set `FRONTEND_URL=http://localhost:3000`. Optional settings choose models, voice, bucket names, upload limit, and additional comma-separated CORS origins.
+Set `LLM_PROVIDER=openai` with `OPENAI_API_KEY`, or `LLM_PROVIDER=gemini` with `GEMINI_API_KEY`. Gemini defaults to `gemini-2.5-flash`; OpenAI remains the default provider. TTS is available only with `LLM_PROVIDER=openai`; Gemini mode returns `501` for that endpoint. `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are always required. Set `FRONTEND_URL=http://localhost:3000`. Optional settings choose models, bucket names, upload/page limits, daily public generation limits, sample URLs, and additional CORS origins.
 
 Open [http://localhost:3000](http://localhost:3000). The API health check is [http://localhost:8000/health](http://localhost:8000/health), and interactive API docs are at [http://localhost:8000/docs](http://localhost:8000/docs).
 
@@ -72,12 +76,21 @@ Open [http://localhost:3000](http://localhost:3000). The API health check is [ht
 | --- | --- | --- |
 | `GET` | `/health` | Service health |
 | `POST` | `/documents/upload` | Upload, extract, detect, and index a private PDF |
+| `GET` | `/documents/sample` | Create or open the shared read-only NIST sample |
 | `GET` | `/documents` | List the current user's documents |
 | `GET` | `/documents/{document_id}` | Get document metadata and a signed PDF URL |
 | `GET` | `/documents/{document_id}/pages/{page_number}` | Get extracted page text and detections |
 | `POST` | `/ai/reading-route` | Generate and save a structured reading route |
 | `POST` | `/ai/podcast-script` | Generate and save a podcast tutor script |
+| `POST` | `/ai/chapter-map` | Generate a cautious chapter and section map |
+| `POST` | `/ai/section-intro` | Explain a selected section at a chosen level and focus |
+| `POST` | `/ai/method-walkthrough` | Build a grounded technical method checklist |
+| `POST` | `/ai/concept-guide` | Trace a concept across the document |
+| `POST` | `/ai/update-response` | Refine an AI output and save a new version |
 | `POST` | `/ai/ask` | Answer only from extracted pages with page citations |
+| `GET` | `/ai-outputs/{document_id}` | Restore saved outputs and version history |
+| `POST` | `/analytics/events` | Record a privacy-limited public demo event |
+| `GET` | `/analytics/aggregate` | Protected aggregate counts using `ADMIN_TOKEN` or `DEBUG_TOKEN` |
 | `POST` | `/ai/text-to-speech` | Generate private MP3 audio and return a signed URL |
 | `POST` | `/notes` | Save a note, optionally linked to a page |
 | `GET` | `/notes/{document_id}` | List notes for a document |

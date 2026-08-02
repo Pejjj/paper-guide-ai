@@ -1,18 +1,19 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+import httpx
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 
 from app.config import get_settings
 from app.models import DocumentOut, PageOut
 from app.services.pdf_service import extract_pdf
-from app.services.supabase_service import get_supabase, owned_document, require_user_id
+from app.services.supabase_service import get_supabase, owned_document, require_user_id, track_event
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
-async def upload_document(file: UploadFile = File(...), user_id: str = Depends(require_user_id)) -> dict:
+async def upload_document(file: UploadFile = File(...), user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> dict:
     settings = get_settings()
     if file.content_type != "application/pdf" or Path(file.filename or "").suffix.lower() != ".pdf":
         raise HTTPException(status_code=415, detail="Only PDF uploads are accepted.")
@@ -25,6 +26,8 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(r
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not pages:
         raise HTTPException(status_code=422, detail="The PDF has no pages.")
+    if len(pages) > settings.public_max_pages:
+        raise HTTPException(status_code=413, detail=f"This free demo accepts PDFs up to {settings.public_max_pages} pages.")
 
     client = get_supabase()
     document_id = str(uuid4())
@@ -56,6 +59,8 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(r
         } for page in pages]
         for start in range(0, len(rows), 100):
             client.table("document_pages").insert(rows[start:start + 100]).execute()
+        track_event("pdf_uploaded", "/documents/upload", x_anonymous_session_id, {"page_count": len(pages)})
+        inserted["read_only"] = False
         return inserted
     except Exception as exc:
         try:
@@ -68,8 +73,58 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(r
 
 @router.get("", response_model=list[DocumentOut])
 def list_documents(user_id: str = Depends(require_user_id)) -> list[dict]:
-    response = get_supabase().table("documents").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
-    return response.data or []
+    response = get_supabase().table("documents").select("*").or_(f"user_id.eq.{user_id},is_sample.eq.true").order("created_at", desc=True).execute()
+    rows = response.data or []
+    for row in rows:
+        row["read_only"] = bool(row.get("is_sample"))
+    return rows
+
+
+@router.get("/sample", response_model=DocumentOut)
+def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> dict:
+    settings = get_settings()
+    client = get_supabase()
+    existing = client.table("documents").select("*").eq("is_sample", True).limit(1).execute().data
+    if existing:
+        document = existing[0]
+    else:
+        try:
+            response = httpx.get(settings.sample_pdf_url, follow_redirects=True, timeout=60)
+            response.raise_for_status()
+            pages, metadata = extract_pdf(response.content)
+            if not pages:
+                raise ValueError("The sample PDF has no extractable pages.")
+            document_id = str(uuid4())
+            storage_path = f"samples/{document_id}/NIST.AI.100-1.pdf"
+            client.storage.from_(settings.supabase_pdf_bucket).upload(storage_path, response.content, {"content-type": "application/pdf", "upsert": "false"})
+            document = client.table("documents").insert({
+                "id": document_id,
+                "user_id": None,
+                "title": "Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1",
+                "original_filename": "NIST.AI.100-1.pdf",
+                "storage_path": storage_path,
+                "page_count": len(pages),
+                "status": "ready",
+                "metadata": {**metadata, "source": "NIST", "source_url": settings.sample_source_url},
+                "is_sample": True,
+                "source_url": settings.sample_source_url,
+            }).execute().data[0]
+            rows = [{
+                "document_id": document_id,
+                "page_number": page.page_number,
+                "text": page.text,
+                "detected_headings": page.detected_headings,
+                "detected_references": page.detected_references,
+            } for page in pages]
+            for start in range(0, len(rows), 100):
+                client.table("document_pages").insert(rows[start:start + 100]).execute()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="The public sample is being prepared. Please try again shortly.") from exc
+    signed = client.storage.from_(settings.supabase_pdf_bucket).create_signed_url(document["storage_path"], 3600)
+    document["signed_url"] = signed.get("signedURL") or signed.get("signedUrl")
+    document["read_only"] = True
+    track_event("sample_document_opened", "/documents/sample", x_anonymous_session_id, {"source": "NIST"})
+    return document
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
@@ -77,6 +132,7 @@ def get_document(document_id: str, user_id: str = Depends(require_user_id)) -> d
     document = owned_document(document_id, user_id)
     result = get_supabase().storage.from_(get_settings().supabase_pdf_bucket).create_signed_url(document["storage_path"], 3600)
     document["signed_url"] = result.get("signedURL") or result.get("signedUrl")
+    document["read_only"] = bool(document.get("is_sample"))
     return document
 
 
@@ -87,4 +143,3 @@ def get_page(document_id: str, page_number: int, user_id: str = Depends(require_
     if not response.data:
         raise HTTPException(status_code=404, detail="Page not found or text extraction failed.")
     return response.data[0]
-

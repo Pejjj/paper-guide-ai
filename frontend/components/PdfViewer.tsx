@@ -12,9 +12,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
 interface PdfViewerProps {
   url: string;
   activeCue: PodcastCue | null;
+  currentPage: number;
+  onPageChange: (page: number) => void;
 }
 
-export function PdfViewer({ url, activeCue }: PdfViewerProps) {
+export function PdfViewer({ url, activeCue, currentPage, onPageChange }: PdfViewerProps) {
   const [pages, setPages] = useState(0);
   const [page, setPage] = useState(1);
   const [scale, setScale] = useState(1.05);
@@ -23,6 +25,12 @@ export function PdfViewer({ url, activeCue }: PdfViewerProps) {
     if (!activeCue?.page_number) return;
     setPage(Math.min(Math.max(activeCue.page_number, 1), pages || activeCue.page_number));
   }, [activeCue, pages]);
+
+  useEffect(() => {
+    setPage(Math.min(Math.max(currentPage, 1), pages || currentPage));
+  }, [currentPage, pages]);
+
+  useEffect(() => { onPageChange(page); }, [onPageChange, page]);
 
   const showCue = activeCue && (!activeCue.page_number || activeCue.page_number === page);
 

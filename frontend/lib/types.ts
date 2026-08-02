@@ -1,14 +1,17 @@
-export interface DocumentRecord { id: string; title: string; original_filename: string; storage_path: string; page_count: number | null; status: string; created_at: string; signed_url?: string; }
+export interface DocumentRecord { id: string; title: string; original_filename: string; storage_path: string; page_count: number | null; status: string; created_at: string; signed_url?: string; is_sample?: boolean; source_url?: string; read_only?: boolean; }
 export interface RouteItem { priority: "Must read" | "Skim" | "Optional"; section_title: string; page_start: number | null; page_end: number | null; why_it_matters: string; what_to_extract: string[]; chapter_7_use: string; }
 export interface ReadingRoute { document_title: string; overall_goal: string; recommended_reading_order: RouteItem[]; skip_or_lightly_skim: string[]; key_tables_figures: string[]; citation_roles: string[]; }
-export interface PodcastCue {
-  cue_id: string;
-  page_number: number | null;
-  quote_to_highlight: string | null;
-  narration_text: string;
-  action: "scroll" | "highlight" | "pause" | "inspect_table" | "inspect_figure";
-  estimated_seconds: number;
-  importance: "high" | "medium" | "low";
-}
+export type CueAction = "scroll" | "highlight" | "pause" | "inspect_table" | "inspect_figure" | "inspect_formula" | "compare_pages" | "checkpoint_question";
+export interface PodcastCue { cue_id: string; cue_title: string; page_number: number | null; page_range: number[] | null; quote_to_highlight: string | null; narration_text: string; action: CueAction; estimated_seconds: number; importance: "high" | "medium" | "low"; prerequisite: boolean; }
 export interface PodcastScript { episode_title: string; duration_minutes: number; script: string; page_directions: string[]; pause_points: string[]; chapter_7_takeaways: string[]; cues: PodcastCue[]; }
+export interface SectionItem { section_id: string; section_title: string; page_start: number | null; page_end: number | null; detected_headings: string[]; key_terms: string[]; formulas_detected: string[]; tables_figures_detected: string[]; why_this_section_matters: string; }
+export interface ChapterItem { chapter_id: string; chapter_title: string; page_start: number | null; page_end: number | null; confidence: "high" | "medium" | "low"; sections: SectionItem[]; }
+export interface DocumentStructure { document_title: string; detected_document_type: "paper" | "book" | "report" | "manual" | "unknown"; chapters: ChapterItem[]; global_reading_advice: string; recommended_learning_paths: string[]; }
+export interface SectionIntro { section_title: string; page_range: number[]; plain_language_intro: string; technical_summary: string; key_terms: string[]; formulas_to_understand: string[]; prerequisite_concepts: string[]; where_else_to_look_in_document: string[]; step_by_step_learning_plan: string[]; warnings_or_common_confusions: string[]; suggested_questions_to_ask: string[]; }
+export interface MethodStep { step_id: string; instruction: string; page_number: number | null; required: boolean; }
+export interface MethodWalkthrough { method_name: string; page_range: number[]; objective: string; required_inputs: string[]; assumptions: string[]; formulas: Array<{ formula_text: string; page_number: number | null; variable_meanings: string[]; variable_meanings_missing: boolean }>; step_by_step_procedure: MethodStep[]; decision_points: string[]; outputs: string[]; validation_checks: string[]; where_results_tables_figures_are_discussed: string[]; missing_information: string[]; references_inside_document: string[]; suggested_external_background_topics: string[]; required_reading: string[]; optional_or_skimmable: string[]; prerequisites_to_read_first: string[]; }
+export interface ConceptGuide { concept: string; simple_explanation: string; technical_explanation: string; where_defined: string[]; where_used: string[]; formulas_involving_concept: string[]; tables_figures_to_check: string[]; recommended_reading_sequence: string[]; prerequisite_concepts: string[]; gaps_not_found_in_document: string[]; }
 export interface Note { id: string; document_id: string; content: string; page_number: number | null; created_at: string; }
+export interface AIOutput { id: string; document_id: string; output_type: string; scope_type: string; scope_metadata: Record<string, unknown>; payload: unknown; created_at: string; updated_at: string; }
+export interface AIOutputVersion { id: string; ai_output_id: string; version_number: number; instruction: string | null; payload: unknown; created_at: string; }
+export interface ChatMessage { role: "user" | "assistant"; content: string; createdAt: string; responseId?: string; }

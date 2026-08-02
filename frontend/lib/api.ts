@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
-import type { DocumentRecord, Note, PodcastScript, ReadingRoute } from "./types";
+import { getAnonymousSessionId } from "./analytics";
+import type { AIOutput, AIOutputVersion, ConceptGuide, DocumentRecord, DocumentStructure, MethodWalkthrough, Note, PodcastScript, ReadingRoute, SectionIntro } from "./types";
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -59,6 +60,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
   const headers = new Headers(init.headers);
   Object.entries(auth).forEach(([key, value]) => headers.set(key, value));
+  headers.set("X-Anonymous-Session-Id", getAnonymousSessionId());
 
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -97,32 +99,41 @@ export const api = {
 
   getDocument: (id: string) => request<DocumentRecord>(`/documents/${id}`),
 
+  getSampleDocument: () => request<DocumentRecord>("/documents/sample"),
+
   generateReadingRoute: (documentId: string) =>
     request<ReadingRoute>("/ai/reading-route", {
       method: "POST",
       body: JSON.stringify({ document_id: documentId }),
     }),
 
-  generatePodcast: (documentId: string) =>
+  generatePodcast: (documentId: string, options: { scope_type?: string; page_start?: number | null; page_end?: number | null; mode?: string } = {}) =>
     request<PodcastScript>("/ai/podcast-script", {
       method: "POST",
-      body: JSON.stringify({ document_id: documentId, duration_minutes: 8 }),
+      body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }),
     }),
 
-  ask: (documentId: string, question: string) =>
+  ask: (documentId: string, question: string, scope: { scope_type?: string; page_start?: number | null; page_end?: number | null } = {}) =>
     request<{ answer: string }>("/ai/ask", {
       method: "POST",
-      body: JSON.stringify({ document_id: documentId, question }),
+      body: JSON.stringify({ document_id: documentId, question, ...scope }),
     }),
 
-  async generateAudio(documentId: string, script: string) {
-    const result = await request<{ signed_url: string }>("/ai/text-to-speech", {
-      method: "POST",
-      body: JSON.stringify({ document_id: documentId, script }),
-    });
+  generateChapterMap: (documentId: string) => request<DocumentStructure>("/ai/chapter-map", { method: "POST", body: JSON.stringify({ document_id: documentId }) }),
 
-    return result.signed_url;
-  },
+  generateSectionIntro: (documentId: string, input: { section_id?: string; section_title?: string; page_start: number; page_end: number; user_level: string; focus: string }) => request<SectionIntro>("/ai/section-intro", { method: "POST", body: JSON.stringify({ document_id: documentId, ...input }) }),
+
+  generateMethodWalkthrough: (documentId: string, pageStart: number, pageEnd: number, userGoal = "understand") => request<MethodWalkthrough>("/ai/method-walkthrough", { method: "POST", body: JSON.stringify({ document_id: documentId, page_start: pageStart, page_end: pageEnd, user_goal: userGoal }) }),
+
+  generateConceptGuide: (documentId: string, concept: string, pageStart?: number | null, pageEnd?: number | null) => request<ConceptGuide>("/ai/concept-guide", { method: "POST", body: JSON.stringify({ document_id: documentId, concept_or_question: concept, page_start: pageStart, page_end: pageEnd }) }),
+
+  updateResponse: (documentId: string, originalResponseType: string, originalResponse: unknown, instruction: string, currentContext: Record<string, unknown> = {}, responseId?: string) => request<{ response_id: string; version_number: number; updated_response: unknown; explanation_of_changes: string; user_instruction: string }>("/ai/update-response", { method: "POST", body: JSON.stringify({ document_id: documentId, response_id: responseId, original_response_type: originalResponseType, original_response_json: originalResponse, user_instruction: instruction, current_context: currentContext }) }),
+
+  getAIOutputs: (documentId: string) => request<{ outputs: AIOutput[]; versions: AIOutputVersion[] }>(`/ai-outputs/${documentId}`),
+
+  revertOutput: (outputId: string, versionNumber: number) => request<{ output_id: string; version_number: number; payload: unknown }>(`/ai-outputs/${outputId}/revert/${versionNumber}`, { method: "POST" }),
+
+  track: (event_name: string, path: string, metadata: Record<string, string | number | boolean | null> = {}) => request<{ accepted: boolean }>("/analytics/events", { method: "POST", body: JSON.stringify({ event_name, path, anonymous_session_id: getAnonymousSessionId(), metadata }) }),
 
   saveNote: (documentId: string, content: string, pageNumber: number | null) =>
     request<Note>("/notes", {

@@ -2,14 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routes import ai, debug, documents, notes
+from app.routes import ai, analytics, debug, documents, notes, outputs
 
 settings = get_settings()
 
 app = FastAPI(
     title="PaperGuide AI API",
     version="0.1.0",
-    description="Private PDF processing and grounded AI tutoring API.",
+    description="Grounded PDF processing and guided educational tutoring API.",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +22,8 @@ app.include_router(documents.router)
 app.include_router(ai.router)
 app.include_router(notes.router)
 app.include_router(debug.router)
+app.include_router(analytics.router)
+app.include_router(outputs.router)
 
 
 @app.get("/health")

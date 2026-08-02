@@ -1,49 +1,18 @@
 import Link from "next/link";
-import { ArrowRight, BookOpen, Headphones, Sparkles } from "lucide-react";
+import { ArrowRight, FileQuestion, Headphones, Map, PlayCircle, ShieldAlert, Sparkles } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
+import { SampleDocumentButton } from "@/components/SampleDocumentButton";
+import { PageView } from "@/components/PageView";
 
 export default function HomePage() {
-  return (
-    <main className="min-h-screen overflow-hidden bg-paper">
-      <Navbar />
-      <section className="mx-auto grid max-w-7xl gap-16 px-6 pb-24 pt-20 lg:grid-cols-[1.1fr_0.9fr] lg:px-10 lg:pt-28">
-        <div>
-          <span className="eyebrow"><Sparkles size={14} /> Read with a plan, not a highlighter</span>
-          <h1 className="mt-7 max-w-4xl text-6xl font-semibold leading-[0.98] tracking-[-0.055em] text-ink sm:text-7xl">
-            Turn dense PDFs into a guided conversation.
-          </h1>
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-ink/65">
-            PaperGuide AI maps what matters, explains it like a podcast tutor, and keeps every insight tied to the source page.
-          </p>
-          <Link className="primary-button mt-10 inline-flex" href="/dashboard">
-            Open your reading desk <ArrowRight size={18} />
-          </Link>
-          <div className="mt-14 grid max-w-2xl grid-cols-3 gap-4 border-t border-ink/10 pt-6 text-sm text-ink/60">
-            <span>Private PDFs</span><span>Page-aware answers</span><span>Markdown notes</span>
-          </div>
-        </div>
-        <div className="relative min-h-[480px]">
-          <div className="absolute inset-8 rotate-3 rounded-[2.5rem] bg-coral/20" />
-          <div className="absolute inset-0 -rotate-2 rounded-[2.5rem] border border-ink/10 bg-white p-8 shadow-soft">
-            <div className="flex items-center justify-between border-b border-ink/10 pb-5">
-              <div><p className="text-xs uppercase tracking-[0.2em] text-ink/45">Today’s route</p><p className="mt-1 font-semibold">A theory of careful reading</p></div>
-              <BookOpen className="text-moss" />
-            </div>
-            {["Start with the argument", "Inspect Figure 3", "Skim the method", "Capture the limitation"].map((item, index) => (
-              <div className="mt-5 flex items-center gap-4" key={item}>
-                <span className="grid size-9 place-items-center rounded-full bg-sage text-sm font-semibold text-moss">{index + 1}</span>
-                <div className="flex-1"><p className="font-medium">{item}</p><div className="mt-2 h-1.5 rounded bg-ink/5"><div className="h-full rounded bg-moss" style={{ width: `${82 - index * 13}%` }} /></div></div>
-              </div>
-            ))}
-            <div className="mt-8 rounded-2xl bg-ink p-5 text-white">
-              <div className="flex items-center gap-2 text-sm text-white/60"><Headphones size={16} /> Tutor episode</div>
-              <p className="mt-3 text-xl font-medium">Why the paper’s strongest claim appears after its main result</p>
-              <p className="mt-2 text-sm text-white/55">8 min · grounded in pages 4–12</p>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-  );
+  return <main className="min-h-screen overflow-hidden bg-paper"><PageView path="/" /><Navbar />
+    <section className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 lg:px-10 lg:pt-28"><div className="absolute right-0 top-12 size-80 rounded-full bg-coral/10 blur-3xl" /><div className="relative max-w-5xl"><span className="eyebrow"><Sparkles size={14} />Free educational demo</span><h1 className="mt-7 text-5xl font-semibold leading-[0.98] tracking-[-0.055em] text-ink sm:text-7xl lg:text-8xl">Turn difficult PDFs into guided audio walkthroughs.</h1><p className="mt-7 max-w-3xl text-lg leading-8 text-ink/65">Upload a technical paper, report, chapter, or manual. PaperGuide creates a guided reading path, speaks through the document, scrolls to important pages, and highlights what to inspect.</p><div className="mt-9 flex flex-wrap gap-3"><SampleDocumentButton /><Link className="secondary-button" href="/dashboard#upload">Upload your own PDF <ArrowRight size={17} /></Link><a className="secondary-button" href="#demo"><PlayCircle size={17} />Watch demo</a></div></div>
+      <div className="relative mt-20 grid gap-5 md:grid-cols-3">{[{ icon: <Map />, title: "Guided reading route", text: "See what deserves close reading, what to skim, and where important evidence appears." }, { icon: <Headphones />, title: "Voice walkthrough with auto-scroll", text: "Listen cue by cue while the viewer moves to the supporting page and shows what to inspect." }, { icon: <FileQuestion />, title: "Ask grounded questions", text: "Choose the whole document, a section, or the current page and receive page-supported answers." }].map((feature) => <article key={feature.title} className="card p-7"><span className="grid size-12 place-items-center rounded-2xl bg-sage text-moss">{feature.icon}</span><h2 className="mt-5 text-xl font-semibold">{feature.title}</h2><p className="mt-2 text-sm leading-6 text-ink/55">{feature.text}</p></article>)}</div>
+    </section>
+    <section id="demo" className="bg-ink py-24 text-white"><div className="mx-auto max-w-7xl px-6 lg:px-10"><div className="max-w-2xl"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-coral">Listen · scroll · inspect · continue</p><h2 className="mt-4 text-4xl font-semibold tracking-tight">A reading desk that moves with the explanation.</h2></div><div className="mt-12 grid gap-6 lg:grid-cols-3"><DemoCard number="01" title="Map the document" copy="A chapter and section tree gives you structure before the detailed explanation begins." /><DemoCard number="02" title="Choose a learning mode" copy="Use simple English, technical, formulas-only, or exam mode for a focused walkthrough." /><DemoCard number="03" title="Refine by conversation" copy="Ask for simpler wording, more detail, formulas, or page references without losing prior versions." /></div><div className="mt-10 rounded-[2rem] border border-white/10 bg-white/5 p-6 sm:p-10"><div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]"><div className="aspect-[4/3] rounded-2xl bg-[#e9e6df] p-5"><div className="h-full rounded-xl bg-white p-6 text-ink shadow-soft"><p className="text-xs uppercase tracking-[0.14em] text-ink/35">PDF page 12</p><div className="mt-5 h-4 w-2/3 rounded bg-ink/10" /><div className="mt-3 h-2 w-full rounded bg-ink/5" /><div className="mt-2 h-2 w-11/12 rounded bg-ink/5" /><div className="mt-8 rounded-xl border-l-4 border-coral bg-coral/10 p-4 text-sm">Inspect the framework functions on this page.</div></div></div><div className="rounded-2xl bg-white p-6 text-ink"><p className="text-xs uppercase tracking-[0.14em] text-ink/35">Current narration cue</p><h3 className="mt-3 text-2xl font-semibold">How the framework is organized</h3><p className="mt-3 leading-7 text-ink/60">The walkthrough speaks a short explanation, moves to the relevant page, and pauses when a table, figure, or formula needs attention.</p><div className="mt-7 h-2 overflow-hidden rounded bg-ink/10"><div className="h-full w-2/5 rounded bg-moss" /></div><div className="mt-3 text-sm text-ink/40">Cue 4 of 10</div></div></div></div></div></section>
+    <section className="mx-auto max-w-5xl px-6 py-20 lg:px-10"><div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-7 sm:p-10"><div className="flex gap-4"><ShieldAlert className="shrink-0 text-amber-700" /><div><h2 className="text-xl font-semibold text-ink">Public demo notice</h2><p className="mt-3 leading-7 text-ink/65">This is a free educational demo. Do not upload confidential, private, copyrighted, or sensitive documents. Uploaded files may be processed to generate grounded reading assistance. AI outputs may contain mistakes.</p><Link href="/privacy" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-moss">Read the privacy and safety notice <ArrowRight size={15} /></Link></div></div></div></section>
+    <footer className="border-t border-ink/10 px-6 py-8 text-center text-sm leading-6 text-ink/50">Free educational demo. Do not upload confidential, private, copyrighted, or sensitive documents. AI outputs may contain mistakes.</footer>
+  </main>;
 }
 
+function DemoCard({ number, title, copy }: { number: string; title: string; copy: string }) { return <article className="rounded-2xl border border-white/10 bg-white/5 p-6"><p className="font-mono text-sm text-coral">{number}</p><h3 className="mt-5 text-xl font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-white/55">{copy}</p></article>; }

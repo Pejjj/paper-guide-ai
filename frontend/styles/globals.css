@@ -14,10 +14,11 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .primary-button { @apply items-center justify-center gap-2 rounded-xl bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-moss disabled:hover:translate-y-0; }
   .secondary-button { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-ink/15 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-moss/40 hover:text-moss; }
   .icon-button { @apply grid size-9 place-items-center rounded-lg text-ink/60 hover:bg-ink/5 hover:text-ink; }
+  .player-primary { @apply inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-50; }
+  .player-secondary { @apply inline-flex items-center gap-2 rounded-xl border border-white/20 px-3 py-2.5 text-sm font-medium text-white hover:bg-white/10 disabled:opacity-40; }
   .field { @apply w-full rounded-xl border border-ink/15 bg-white px-4 py-3 text-sm text-ink placeholder:text-ink/30 focus:border-moss focus:ring-2 focus:ring-moss/10; }
   .priority { @apply rounded-full px-2.5 py-1 text-xs font-semibold; }
   .priority.must-read { @apply bg-coral/15 text-[#a33d26]; }
   .priority.skim { @apply bg-sage text-moss; }
   .priority.optional { @apply bg-ink/5 text-ink/50; }
 }
-

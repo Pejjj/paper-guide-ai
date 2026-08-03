@@ -5,6 +5,8 @@ import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AIOutput, AIOutputVersion, ChatMessage, ConceptGuide, DocumentStructure, MethodWalkthrough, PodcastScript, ReadingRoute, SectionIntro, SectionItem } from "@/lib/types";
 
+export interface GuidedReadingRequestState { scope_type: "document" | "chapter" | "section" | "page_range" | "formula" | "method" | "concept"; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; request_id: string; }
+
 type PlaybackStatus = "idle" | "playing" | "paused" | "complete";
 
 export interface DocumentWorkspaceState {
@@ -22,6 +24,7 @@ export interface DocumentWorkspaceState {
   conceptGuide: ConceptGuide | null;
   outputs: AIOutput[];
   versions: AIOutputVersion[];
+  guidedReadingRequest: GuidedReadingRequestState | null;
 }
 
 interface WorkspaceContextValue {
@@ -53,6 +56,7 @@ const emptyWorkspace = (title = ""): DocumentWorkspaceState => ({
   conceptGuide: null,
   outputs: [],
   versions: [],
+  guidedReadingRequest: null,
 });
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);

@@ -12,6 +12,8 @@ from app.models import (
 )
 from app.routes import ai, analytics, documents
 from app.services import openai_service, supabase_service
+from app.services.pdf_service import _detected_items
+from app.services.structure_service import resolve_heading, resolve_structure
 
 
 def test_chapter_map_schema_validation() -> None:
@@ -34,9 +36,52 @@ def test_chapter_map_rejects_invented_pages(monkeypatch) -> None:
         recommended_learning_paths=[],
     )
     monkeypatch.setattr(openai_service, "_structured", lambda *args: generated)
-    result = openai_service.chapter_map("Manual", [{"page_number": 1, "text": "Start"}])
+    result = openai_service.chapter_map("Manual", [{"page_number": 1, "text": "Unrelated body text"}])
     assert result.chapters[0].page_start is None
     assert result.chapters[0].page_end is None
+
+
+def test_toc_entry_is_not_used_as_body_start() -> None:
+    pages = [
+        {"page_number": 13, "text": "TABLE OF CONTENTS\n2.0 STRESS AND STRAIN IN SOILS ........ 2-1", "detected_headings": ["2.0 STRESS AND STRAIN IN SOILS ........ 2-1"]},
+        {"page_number": 35, "text": "2.0 Stress and Strain in Soils\nBody discussion", "detected_headings": ["2.0 Stress and Strain in Soils"]},
+    ]
+    assert resolve_heading("2.0 STRESS AND STRAIN IN SOILS", pages)[:3] == (35, "body_heading_match", "high")
+
+
+def test_toc_only_heading_remains_unresolved() -> None:
+    pages = [{"page_number": 13, "text": "TABLE OF CONTENTS\nPURPOSE AND SCOPE ........ 1-1", "detected_headings": ["PURPOSE AND SCOPE ........ 1-1"]}]
+    page, source, confidence, warning = resolve_heading("PURPOSE AND SCOPE", pages)
+    assert page is None
+    assert source == "toc_unresolved"
+    assert confidence == "low"
+    assert warning
+
+
+def test_section_ranges_and_printed_labels_are_resolved() -> None:
+    result = DocumentStructureResponse(
+        document_title="Manual", detected_document_type="manual",
+        chapters=[ChapterItem(chapter_id="c", chapter_title="2.0 SOILS", confidence="low", sections=[
+            {"section_id": "s1", "section_title": "2.1 BASIC RELATIONSHIPS", "detected_headings": [], "key_terms": [], "formulas_detected": [], "tables_figures_detected": [], "why_this_section_matters": "Core"},
+            {"section_id": "s2", "section_title": "2.2 STRESS", "detected_headings": [], "key_terms": [], "formulas_detected": [], "tables_figures_detected": [], "why_this_section_matters": "Next"},
+        ])], global_reading_advice="", recommended_learning_paths=[])
+    pages = [
+        {"page_number": 10, "printed_page_label": "2-1", "text": "2.0 SOILS\n2.1 BASIC RELATIONSHIPS", "detected_headings": ["2.0 SOILS", "2.1 BASIC RELATIONSHIPS"]},
+        {"page_number": 11, "printed_page_label": "2-2", "text": "body", "detected_headings": []},
+        {"page_number": 12, "printed_page_label": "2-3", "text": "2.2 STRESS", "detected_headings": ["2.2 STRESS"]},
+        {"page_number": 13, "printed_page_label": "2-4", "text": "body", "detected_headings": []},
+    ]
+    resolved = resolve_structure(result, pages)
+    assert resolved.chapters[0].page_end == 13
+    assert resolved.chapters[0].sections[0].page_end == 11
+    assert resolved.chapters[0].sections[0].printed_page_start == "2-1"
+
+
+def test_formula_table_and_figure_detection() -> None:
+    formulas, tables, figures = _detected_items("Eq. (2) sigma = P / A\nTable 2-1 Soil properties\nFigure 2-3 Stress bulb", 35, "2-1")
+    assert formulas and formulas[0]["item_type"] == "formula"
+    assert tables and tables[0]["page_number"] == 35
+    assert figures and figures[0]["printed_page_label"] == "2-1"
 
 
 def test_section_intro_range_is_grounded(monkeypatch) -> None:

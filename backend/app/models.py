@@ -27,6 +27,11 @@ class PageOut(BaseModel):
     text: str
     detected_headings: list[str] = []
     detected_references: list[str] = []
+    physical_page_number: int | None = None
+    printed_page_label: str | None = None
+    detected_formulas: list[dict] = []
+    detected_tables: list[dict] = []
+    detected_figures: list[dict] = []
 
 
 class DocumentRequest(BaseModel):
@@ -54,10 +59,21 @@ class ReadingRouteResponse(BaseModel):
 
 class PodcastRequest(DocumentRequest):
     duration_minutes: int = Field(default=8, ge=3, le=20)
-    scope_type: Literal["document", "chapter", "section", "concept", "method"] = "document"
+    scope_type: Literal["document", "chapter", "section", "page_range", "formula", "method", "concept"] = "document"
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
     mode: Literal["normal", "simple", "technical", "formulas", "exam"] = "normal"
+
+
+class GuidedReadingRequest(DocumentRequest):
+    duration_minutes: int = Field(default=8, ge=3, le=20)
+    scope_type: Literal["document", "chapter", "section", "page_range", "formula", "method", "concept"] = "document"
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    section_id: str | None = None
+    chapter_id: str | None = None
+    focus_text: str | None = Field(default=None, max_length=500)
+    learning_mode: Literal["normal", "simple_english", "technical", "formulas_only", "exam_study", "method_reproduction"] = "normal"
 
 
 class PodcastCue(BaseModel):
@@ -71,6 +87,8 @@ class PodcastCue(BaseModel):
     estimated_seconds: int = Field(ge=2, le=90)
     importance: Literal["high", "medium", "low"]
     prerequisite: bool = False
+    target_item_type: Literal["heading", "paragraph", "formula", "table", "figure", "method_step"] = "paragraph"
+    checkpoint_question: str | None = Field(default=None, max_length=400)
 
 
 class PodcastResponse(BaseModel):
@@ -136,6 +154,12 @@ class SectionItem(BaseModel):
     formulas_detected: list[str]
     tables_figures_detected: list[str]
     why_this_section_matters: str
+    source: Literal["pdf_outline", "body_heading_match", "toc_unresolved", "ai_inferred"] = "ai_inferred"
+    confidence: Literal["high", "medium", "low"] = "low"
+    warning: str | None = None
+    printed_page_start: str | None = None
+    printed_page_end: str | None = None
+    detected_items: list[dict] = []
 
 
 class ChapterItem(BaseModel):
@@ -145,6 +169,11 @@ class ChapterItem(BaseModel):
     page_end: int | None = None
     confidence: Literal["high", "medium", "low"]
     sections: list[SectionItem]
+    source: Literal["pdf_outline", "body_heading_match", "toc_unresolved", "ai_inferred"] = "ai_inferred"
+    warning: str | None = None
+    printed_page_start: str | None = None
+    printed_page_end: str | None = None
+    detected_items: list[dict] = []
 
 
 class DocumentStructureResponse(BaseModel):

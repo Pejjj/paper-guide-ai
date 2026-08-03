@@ -15,6 +15,7 @@ from app.models import (
     ReadingRouteResponse,
     SectionIntroResponse,
 )
+from app.services.structure_service import resolve_structure, structure_from_outline
 
 T = TypeVar("T", bound=BaseModel)
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -98,7 +99,10 @@ def _page_context(pages: list[dict[str, Any]], max_chars: int = 80_000) -> str:
         text = page.get("text") or "[Text extraction failed or page contains no extractable text.]"
         headings = ", ".join(page.get("detected_headings") or [])
         refs = ", ".join(page.get("detected_references") or [])
-        chunk = f"\n--- PAGE {page['page_number']} ---\nDetected headings: {headings or 'none'}\nDetected references: {refs or 'none'}\n{text}\n"
+        formulas = "; ".join(item.get("title_or_text", "") for item in (page.get("detected_formulas") or []))
+        tables = "; ".join(item.get("title_or_text", "") for item in (page.get("detected_tables") or []))
+        figures = "; ".join(item.get("title_or_text", "") for item in (page.get("detected_figures") or []))
+        chunk = f"\n--- PAGE {page['page_number']} (printed {page.get('printed_page_label') or 'unknown'}) ---\nDetected headings: {headings or 'none'}\nDetected references: {refs or 'none'}\nDetected formulas: {formulas or 'none'}\nDetected tables: {tables or 'none'}\nDetected figures: {figures or 'none'}\n{text}\n"
         if used + len(chunk) > max_chars:
             remaining = max_chars - used
             if remaining > 400:
@@ -142,7 +146,7 @@ def reading_route(title: str, pages: list[dict[str, Any]]) -> ReadingRouteRespon
     return _structured(system, f"Create a practical reading route for {title!r}.\n{_page_context(pages)}", ReadingRouteResponse)
 
 
-def podcast_script(title: str, pages: list[dict[str, Any]], duration: int, mode: str = "normal", scope_type: str = "document") -> PodcastResponse:
+def podcast_script(title: str, pages: list[dict[str, Any]], duration: int, mode: str = "normal", scope_type: str = "document", focus_text: str | None = None) -> PodcastResponse:
     system = """You create a guided document walkthrough grounded only in the supplied extracted PDF text and detection metadata. Return a short sequence of narration cues that a browser can speak one at a time while moving through the PDF.
 
 Rules for every cue:
@@ -151,12 +155,12 @@ Rules for every cue:
 - quote_to_highlight must be a short exact verbatim excerpt from that same page, or null when no reliable excerpt is available.
 - Use highlight only with a reliable exact quote. Use scroll to move to a supported page, and pause for a reflection cue that does not require navigation.
 - Use inspect_table, inspect_figure, or inspect_formula only when the item is visible in that page's extracted text or detected references. Never infer one from the topic alone.
-- Use checkpoint_question after major ideas, formulas, or method steps. Use compare_pages only when both pages are supplied and relevant.
+- Set target_item_type accurately. Use checkpoint_question after major ideas, formulas, or method steps. Use compare_pages only when both pages are supplied and relevant.
 - narration_text must explain or paraphrase content supported by that page. Acknowledge missing or failed extraction instead of filling gaps.
 - Give every cue a unique stable cue_id, a realistic estimated_seconds value, and an importance level.
 
 Keep the existing compatibility fields. script must be the readable full transcript in the same order as the cues; page_directions, pause_points, and chapter_7_takeaways should remain concise."""
-    prompt = f"Create a roughly {duration}-minute {mode} guided-reading episode for {title!r}, scoped to {scope_type}. Break it into short, sequential cues suitable for listen, scroll, inspect, checkpoint, and continue playback.\n{_page_context(pages)}"
+    prompt = f"Create a roughly {duration}-minute {mode} guided-reading episode for {title!r}, scoped to {scope_type}{f' and focused on {focus_text!r}' if focus_text else ''}. Use only PAGE blocks in this selected range and cover the range sequentially rather than stopping at its first page. Break it into short cues suitable for listen, scroll, inspect, checkpoint, and continue playback.\n{_page_context(pages)}"
     result = _structured(system, prompt, PodcastResponse)
     result.cues = _ground_podcast_cues(result.cues, pages)
     return result
@@ -225,26 +229,20 @@ def _pages_in_range(pages: list[dict[str, Any]], page_start: int | None, page_en
     return [page for page in pages if start <= int(page["page_number"]) <= end]
 
 
-def chapter_map(title: str, pages: list[dict[str, Any]]) -> DocumentStructureResponse:
+def chapter_map(title: str, pages: list[dict[str, Any]], outline: list[dict[str, Any]] | None = None) -> DocumentStructureResponse:
+    outline_result = structure_from_outline(title, pages, outline or [])
+    if outline_result:
+        return outline_result
     system = """Build a cautious document structure map using extracted headings and page metadata first. Use only supplied pages. Never invent exact chapter or section boundaries. Mark confidence low when headings are weak. Page values must correspond to supplied PAGE blocks. Formula/table/figure claims require visible text or detection metadata."""
     result = _structured(system, f"Map the chapters and sections of {title!r}.\n{_page_context(pages)}", DocumentStructureResponse)
-    valid_pages = {int(page["page_number"]) for page in pages}
-    for chapter in result.chapters:
-        if chapter.page_start not in valid_pages:
-            chapter.page_start = None
-        if chapter.page_end not in valid_pages:
-            chapter.page_end = chapter.page_start
-        for section in chapter.sections:
-            if section.page_start not in valid_pages:
-                section.page_start = None
-            if section.page_end not in valid_pages:
-                section.page_end = section.page_start
-    return result
+    return resolve_structure(result, pages, outline)
 
 
 def section_intro(title: str, pages: list[dict[str, Any]], section_title: str, user_level: str, focus: str) -> SectionIntroResponse:
     system = """Explain only the selected extracted document pages. Ground every claim in those pages and point to page numbers in prose where useful. Never invent formulas, definitions, tables, or prerequisites. When a prerequisite is absent, say exactly that the document does not explain it fully and an external source may be needed. Do not add outside knowledge unless explicitly requested and clearly labeled general background."""
-    result = _structured(system, f"Create a {user_level} introduction focused on {focus} for {section_title!r} in {title!r}.\n{_page_context(pages, 45_000)}", SectionIntroResponse)
+    toc_pages = sum("table of contents" in (page.get("text") or "").casefold() for page in pages)
+    toc_warning = "The selected text appears to be a table-of-contents page, not the section body. State this limitation prominently." if toc_pages and toc_pages >= max(1, len(pages) // 2) else ""
+    result = _structured(system, f"Create a {user_level} introduction focused on {focus} for {section_title!r} in {title!r}. Use the complete supplied page range. {toc_warning}\n{_page_context(pages, 60_000)}", SectionIntroResponse)
     numbers = [int(page["page_number"]) for page in pages]
     result.page_range = [min(numbers), max(numbers)] if numbers else []
     return result

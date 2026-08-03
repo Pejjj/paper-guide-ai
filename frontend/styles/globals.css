@@ -7,6 +7,14 @@
 body { margin: 0; background: #f7f4ed; color: #17231f; font-family: Arial, Helvetica, sans-serif; }
 button, a, input, textarea { outline-color: #315c4a; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
+.react-pdf__Page__textContent .paperguide-text-highlight {
+  margin: -2px;
+  padding: 2px;
+  border-radius: 3px;
+  background: rgba(255, 184, 77, 0.58);
+  box-shadow: 0 0 0 2px rgba(237, 107, 72, 0.28);
+  color: transparent;
+}
 
 @layer components {
   .card { @apply rounded-[1.75rem] border border-ink/10 bg-white shadow-soft; }

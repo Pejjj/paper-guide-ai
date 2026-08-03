@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getAnonymousSessionId } from "./analytics";
-import type { AIOutput, AIOutputVersion, ConceptGuide, DocumentRecord, DocumentStructure, MethodWalkthrough, Note, PodcastScript, ReadingRoute, SectionIntro } from "./types";
+import type { AIOutput, AIOutputVersion, ConceptGuide, DetectedDocumentItem, DocumentRecord, DocumentStructure, MethodWalkthrough, Note, PodcastScript, ReadingRoute, SectionIntro } from "./types";
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -112,6 +112,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }),
     }),
+
+  generateGuidedReading: (documentId: string, options: { scope_type?: string; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; learning_mode?: string } = {}) =>
+    request<PodcastScript>("/ai/guided-reading", { method: "POST", body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }) }),
+
+  getDetectedItems: (documentId: string, pageStart: number, pageEnd: number) =>
+    request<DetectedDocumentItem[]>(`/documents/${documentId}/items?page_start=${pageStart}&page_end=${pageEnd}`),
 
   ask: (documentId: string, question: string, scope: { scope_type?: string; page_start?: number | null; page_end?: number | null } = {}) =>
     request<{ answer: string }>("/ai/ask", {

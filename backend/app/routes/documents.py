@@ -15,6 +15,44 @@ SAMPLE_SUBTITLE = "A classic FHWA/NHI geotechnical reference for soil mechanics,
 SAMPLE_ATTRIBUTION = "Federal Highway Administration / National Highway Institute, FHWA-NHI-06-088"
 
 
+def _page_rows(document_id: str, pages: list) -> list[dict]:
+    return [{
+        "document_id": document_id,
+        "page_number": page.page_number,
+        "physical_page_number": page.physical_page_number,
+        "printed_page_label": page.printed_page_label,
+        "text": page.text,
+        "detected_headings": page.detected_headings,
+        "detected_references": page.detected_references,
+        "detected_formulas": page.detected_formulas,
+        "detected_tables": page.detected_tables,
+        "detected_figures": page.detected_figures,
+    } for page in pages]
+
+
+def _ensure_sample_index(document: dict) -> dict:
+    metadata = document.get("metadata") or {}
+    if not document.get("is_sample") or metadata.get("structure_version") == 2:
+        return document
+    try:
+        response = httpx.get(get_settings().sample_pdf_url, follow_redirects=True, timeout=90)
+        response.raise_for_status()
+        pages, extracted_metadata = extract_pdf(response.content)
+        client = get_supabase()
+        rows = _page_rows(document["id"], pages)
+        for start in range(0, len(rows), 100):
+            client.table("document_pages").upsert(rows[start:start + 100], on_conflict="document_id,page_number").execute()
+        merged = {**metadata, **extracted_metadata, "subtitle": SAMPLE_SUBTITLE, "source_attribution": SAMPLE_ATTRIBUTION}
+        client.table("documents").update({"metadata": merged, "page_count": len(pages)}).eq("id", document["id"]).execute()
+        document["metadata"] = merged
+        document["page_count"] = len(pages)
+    except Exception:
+        # Keep the already available sample usable; chapter-map resolution will still
+        # reject TOC-only page matches from its stored text.
+        pass
+    return document
+
+
 def _present_document(document: dict) -> dict:
     document["read_only"] = bool(document.get("is_sample"))
     if document.get("is_sample"):
@@ -62,13 +100,7 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(r
             "status": "ready",
             "metadata": metadata,
         }).execute().data[0]
-        rows = [{
-            "document_id": document_id,
-            "page_number": page.page_number,
-            "text": page.text,
-            "detected_headings": page.detected_headings,
-            "detected_references": page.detected_references,
-        } for page in pages]
+        rows = _page_rows(document_id, pages)
         for start in range(0, len(rows), 100):
             client.table("document_pages").insert(rows[start:start + 100]).execute()
         track_event("pdf_uploaded", "/documents/upload", x_anonymous_session_id, {"page_count": len(pages)})
@@ -97,7 +129,7 @@ def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_se
     client = get_supabase()
     existing = client.table("documents").select("*").eq("is_sample", True).eq("source_url", settings.sample_source_url).limit(1).execute().data
     if existing:
-        document = existing[0]
+        document = _ensure_sample_index(existing[0])
     else:
         try:
             response = httpx.get(settings.sample_pdf_url, follow_redirects=True, timeout=60)
@@ -126,13 +158,7 @@ def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_se
                 "is_sample": True,
                 "source_url": settings.sample_source_url,
             }).execute().data[0]
-            rows = [{
-                "document_id": document_id,
-                "page_number": page.page_number,
-                "text": page.text,
-                "detected_headings": page.detected_headings,
-                "detected_references": page.detected_references,
-            } for page in pages]
+            rows = _page_rows(document_id, pages)
             for start in range(0, len(rows), 100):
                 client.table("document_pages").insert(rows[start:start + 100]).execute()
         except Exception as exc:
@@ -145,7 +171,7 @@ def get_or_create_sample(user_id: str = Depends(require_user_id), x_anonymous_se
 
 @router.get("/{document_id}", response_model=DocumentOut)
 def get_document(document_id: str, user_id: str = Depends(require_user_id)) -> dict:
-    document = owned_document(document_id, user_id)
+    document = _ensure_sample_index(owned_document(document_id, user_id))
     result = get_supabase().storage.from_(get_settings().supabase_pdf_bucket).create_signed_url(document["storage_path"], 3600)
     document["signed_url"] = result.get("signedURL") or result.get("signedUrl")
     return _present_document(document)
@@ -158,3 +184,19 @@ def get_page(document_id: str, page_number: int, user_id: str = Depends(require_
     if not response.data:
         raise HTTPException(status_code=404, detail="Page not found or text extraction failed.")
     return response.data[0]
+
+
+@router.get("/{document_id}/items")
+def get_detected_items(document_id: str, page_start: int | None = None, page_end: int | None = None, user_id: str = Depends(require_user_id)) -> list[dict]:
+    owned_document(document_id, user_id)
+    query = get_supabase().table("document_pages").select("page_number,printed_page_label,detected_formulas,detected_tables,detected_figures").eq("document_id", document_id)
+    if page_start is not None:
+        query = query.gte("page_number", page_start)
+    if page_end is not None:
+        query = query.lte("page_number", page_end)
+    rows = query.order("page_number").execute().data or []
+    items: list[dict] = []
+    for row in rows:
+        for key in ("detected_formulas", "detected_tables", "detected_figures"):
+            items.extend(row.get(key) or [])
+    return items

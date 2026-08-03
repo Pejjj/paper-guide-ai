@@ -43,7 +43,7 @@ def owned_document(document_id: str, user_id: str) -> dict[str, Any]:
 
 def document_pages(document_id: str, user_id: str) -> list[dict[str, Any]]:
     owned_document(document_id, user_id)
-    response = get_supabase().table("document_pages").select("page_number,text,detected_headings,detected_references").eq("document_id", document_id).order("page_number").execute()
+    response = get_supabase().table("document_pages").select("page_number,physical_page_number,printed_page_label,text,detected_headings,detected_references,detected_formulas,detected_tables,detected_figures").eq("document_id", document_id).order("page_number").execute()
     return response.data or []
 
 

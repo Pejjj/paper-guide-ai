@@ -28,9 +28,20 @@ create table if not exists public.document_pages (
   text text not null default '',
   detected_headings jsonb not null default '[]'::jsonb,
   detected_references jsonb not null default '[]'::jsonb,
+  physical_page_number integer,
+  printed_page_label text,
+  detected_formulas jsonb not null default '[]'::jsonb,
+  detected_tables jsonb not null default '[]'::jsonb,
+  detected_figures jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   unique (document_id, page_number)
 );
+
+alter table public.document_pages add column if not exists physical_page_number integer;
+alter table public.document_pages add column if not exists printed_page_label text;
+alter table public.document_pages add column if not exists detected_formulas jsonb not null default '[]'::jsonb;
+alter table public.document_pages add column if not exists detected_tables jsonb not null default '[]'::jsonb;
+alter table public.document_pages add column if not exists detected_figures jsonb not null default '[]'::jsonb;
 
 create table if not exists public.reading_routes (
   id uuid primary key default gen_random_uuid(),

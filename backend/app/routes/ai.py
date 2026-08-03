@@ -11,6 +11,7 @@ from app.models import (
     ConceptGuideResponse,
     DocumentStructureResponse,
     DocumentRequest,
+    GuidedReadingRequest,
     MethodWalkthroughRequest,
     MethodWalkthroughResponse,
     PodcastRequest,
@@ -100,6 +101,29 @@ def create_podcast(payload: PodcastRequest, user_id: str = Depends(require_user_
     return result
 
 
+@router.post("/guided-reading", response_model=PodcastResponse)
+def create_guided_reading(payload: GuidedReadingRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> PodcastResponse:
+    document, pages = _pages_or_error(str(payload.document_id), user_id)
+    settings = get_settings()
+    enforce_daily_limit("guided_reading_generated", x_anonymous_session_id, settings.public_max_guided_readings_per_day, "guided readings")
+    if payload.scope_type != "document" and payload.page_start is None:
+        raise HTTPException(status_code=422, detail="A resolved page_start is required for scoped guided reading.")
+    selected = _scoped_pages(pages, payload.page_start, payload.page_end)
+    mode = {
+        "normal": "normal", "simple_english": "simple", "technical": "technical",
+        "formulas_only": "formulas", "exam_study": "exam", "method_reproduction": "technical",
+    }[payload.learning_mode]
+    try:
+        result = openai_service.podcast_script(document["title"], selected, payload.duration_minutes, mode, payload.scope_type, payload.focus_text)
+    except Exception as exc:
+        raise _llm_unavailable(exc) from exc
+    data = result.model_dump(mode="json")
+    get_supabase().table("podcast_scripts").insert({"document_id": str(payload.document_id), "user_id": user_id, "episode_title": result.episode_title, "duration_minutes": result.duration_minutes, "script": result.script, "payload": data}).execute()
+    save_ai_output(str(payload.document_id), user_id, "guided_reading", data, payload.scope_type, {"page_start": payload.page_start, "page_end": payload.page_end, "learning_mode": payload.learning_mode, "section_id": payload.section_id, "chapter_id": payload.chapter_id}, x_anonymous_session_id)
+    track_event("guided_reading_generated", "/ai/guided-reading", x_anonymous_session_id, {"scope_type": payload.scope_type, "learning_mode": payload.learning_mode})
+    return result
+
+
 @router.post("/ask", response_model=AskResponse)
 def ask_document(payload: AskRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> AskResponse:
     _, pages = _pages_or_error(str(payload.document_id), user_id)
@@ -118,7 +142,7 @@ def ask_document(payload: AskRequest, user_id: str = Depends(require_user_id), x
 def create_chapter_map(payload: DocumentRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> DocumentStructureResponse:
     document, pages = _pages_or_error(str(payload.document_id), user_id)
     try:
-        result = openai_service.chapter_map(document["title"], pages)
+        result = openai_service.chapter_map(document["title"], pages, (document.get("metadata") or {}).get("outline") or [])
     except Exception as exc:
         raise _llm_unavailable(exc) from exc
     save_ai_output(str(payload.document_id), user_id, "chapter_map", result.model_dump(mode="json"), anonymous_session_id=x_anonymous_session_id)

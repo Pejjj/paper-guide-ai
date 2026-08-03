@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Headphones, Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import type { CueAction, PodcastScript } from "@/lib/types";
@@ -22,21 +22,34 @@ export function PodcastPanel({ documentId }: { documentId: string }) {
   const [mode, setMode] = useState("normal");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const handledRequest = useRef<string | null>(null);
 
-  async function generate() {
+  async function generate(request = workspace?.guidedReadingRequest) {
     setLoading(true); setError("");
     const section = workspace?.selectedSection;
     try {
-      const result = await api.generatePodcast(documentId, {
-        scope_type: section ? "section" : "document",
-        page_start: section?.page_start,
-        page_end: section?.page_end,
-        mode,
+      const result = await api.generateGuidedReading(documentId, {
+        scope_type: request?.scope_type ?? (section ? "section" : "document"),
+        page_start: request?.page_start ?? section?.page_start,
+        page_end: request?.page_end ?? section?.page_end,
+        section_id: request?.section_id ?? section?.section_id,
+        chapter_id: request?.chapter_id,
+        focus_text: request?.focus_text,
+        learning_mode: ({ simple: "simple_english", formulas: "formulas_only", exam: "exam_study" } as Record<string, string>)[mode] ?? mode,
       });
-      updateWorkspace(documentId, { podcast: result, transcript: result.script, cueIndex: 0, currentPage: result.cues[0]?.page_number ?? workspace?.currentPage ?? 1 });
+      updateWorkspace(documentId, { podcast: result, transcript: result.script, cueIndex: 0, currentPage: result.cues[0]?.page_number ?? workspace?.currentPage ?? 1, guidedReadingRequest: null });
     } catch (e) { setError(e instanceof Error ? e.message : "Generation failed."); }
     finally { setLoading(false); }
   }
+
+  useEffect(() => {
+    const request = workspace?.guidedReadingRequest;
+    if (!request || handledRequest.current === request.request_id) return;
+    handledRequest.current = request.request_id;
+    void generate(request);
+    // request_id is the intentional trigger; workspace changes while generation runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.guidedReadingRequest?.request_id]);
 
   if (!podcast) return <div><ModePicker mode={mode} setMode={setMode} /><EmptyTool icon={<Headphones />} title="Listen, scroll, inspect, and check your understanding" description="Generate a guided walkthrough for the whole document or the selected section." action="Generate Guided Reading" loading={loading} error={error} onClick={generate} /></div>;
   const cue = podcast.cues[cueIndex] ?? null;

@@ -7,8 +7,12 @@ from app.config import get_settings
 from app.models import (
     AskRequest,
     AskResponse,
+    ConceptReadthroughRequest,
+    ConceptReadthroughResponse,
     ConceptGuideRequest,
     ConceptGuideResponse,
+    DefinitionIndexRequest,
+    DefinitionIndexResponse,
     DocumentStructureResponse,
     DocumentRequest,
     GuidedReadingRequest,
@@ -109,6 +113,8 @@ def create_guided_reading(payload: GuidedReadingRequest, user_id: str = Depends(
     if payload.scope_type != "document" and payload.page_start is None:
         raise HTTPException(status_code=422, detail="A resolved page_start is required for scoped guided reading.")
     selected = _scoped_pages(pages, payload.page_start, payload.page_end)
+    if len(selected) > settings.guided_reading_max_scope_pages:
+        raise HTTPException(status_code=413, detail=f"This range has {len(selected)} pages. Choose a section of {settings.guided_reading_max_scope_pages} pages or fewer, or generate a chapter overview first.")
     mode = {
         "normal": "normal", "simple_english": "simple", "technical": "technical",
         "formulas_only": "formulas", "exam_study": "exam", "method_reproduction": "technical",
@@ -128,9 +134,13 @@ def create_guided_reading(payload: GuidedReadingRequest, user_id: str = Depends(
 def ask_document(payload: AskRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> AskResponse:
     _, pages = _pages_or_error(str(payload.document_id), user_id)
     enforce_daily_limit("ask_document_used", x_anonymous_session_id, get_settings().public_max_questions_per_day, "document questions")
-    pages = _scoped_pages(pages, payload.page_start, payload.page_end)
+    selected = _scoped_pages(pages, payload.page_start, payload.page_end)
+    if payload.scope_type not in {"document", "page"}:
+        selected_numbers = {int(page["page_number"]) for page in selected}
+        related = [page for page in openai_service.related_pages(payload.question, pages, 8) if int(page["page_number"]) not in selected_numbers]
+        selected = [*selected, *related]
     try:
-        result = AskResponse(answer=openai_service.answer_question(payload.question, pages))
+        result = AskResponse(answer=openai_service.answer_question(payload.question, selected))
     except Exception as exc:
         raise _llm_unavailable(exc) from exc
     save_ai_output(str(payload.document_id), user_id, "ask_answer", {"question": payload.question, "answer": result.answer}, payload.scope_type, {"page_start": payload.page_start, "page_end": payload.page_end}, x_anonymous_session_id)
@@ -185,6 +195,43 @@ def create_concept_guide(payload: ConceptGuideRequest, user_id: str = Depends(re
     except Exception as exc:
         raise _llm_unavailable(exc) from exc
     save_ai_output(str(payload.document_id), user_id, "concept_guide", result.model_dump(mode="json"), "concept", {"concept": payload.concept_or_question}, x_anonymous_session_id)
+    return result
+
+
+@router.post("/definition-index", response_model=DefinitionIndexResponse)
+def create_definition_index(payload: DefinitionIndexRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> DefinitionIndexResponse:
+    document, pages = _pages_or_error(str(payload.document_id), user_id)
+    selected = _scoped_pages(pages, payload.page_start, payload.page_end)
+    try:
+        result = openai_service.definition_index(document["title"], payload.scope_title or payload.scope_type.replace("_", " ").title(), selected, payload.mode)
+    except Exception as exc:
+        raise _llm_unavailable(exc) from exc
+    data = result.model_dump(mode="json")
+    save_ai_output(str(payload.document_id), user_id, "definition_index", data, payload.scope_type, {"page_start": payload.page_start, "page_end": payload.page_end, "scope_title": payload.scope_title, "mode": payload.mode}, x_anonymous_session_id)
+    return result
+
+
+@router.post("/concept-readthrough", response_model=ConceptReadthroughResponse)
+def create_concept_readthrough(payload: ConceptReadthroughRequest, user_id: str = Depends(require_user_id), x_anonymous_session_id: str = Header(default="unknown-session")) -> ConceptReadthroughResponse:
+    document, pages = _pages_or_error(str(payload.document_id), user_id)
+    selected = _scoped_pages(pages, payload.page_start, payload.page_end)
+    if len(selected) > get_settings().guided_reading_max_scope_pages:
+        raise HTTPException(status_code=413, detail="This concept scope is too large. Select a section or a range of 40 pages or fewer.")
+    selected_numbers = {int(page["page_number"]) for page in selected}
+    related = [page for page in openai_service.related_pages(payload.term, pages, 10) if int(page["page_number"]) not in selected_numbers]
+    reference_pages = [page for page in pages if "references" in (page.get("text") or "").casefold() or any("reference" in str(value).casefold() for value in page.get("detected_headings") or [])]
+    for page in [*related, *reference_pages]:
+        number = int(page["page_number"])
+        if number not in selected_numbers and len(selected) < get_settings().guided_reading_max_scope_pages:
+            selected.append(page)
+            selected_numbers.add(number)
+    selected.sort(key=lambda page: int(page["page_number"]))
+    try:
+        result = openai_service.concept_readthrough(document["title"], selected, payload.term, payload.learning_mode)
+    except Exception as exc:
+        raise _llm_unavailable(exc) from exc
+    data = result.model_dump(mode="json")
+    save_ai_output(str(payload.document_id), user_id, "concept_readthrough", data, "concept", {"definition_id": payload.definition_id, "term": payload.term, "page_start": payload.page_start, "page_end": payload.page_end}, x_anonymous_session_id)
     return result
 
 

@@ -7,7 +7,9 @@ from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.models import (
+    ConceptReadthroughResponse,
     ConceptGuideResponse,
+    DefinitionIndexResponse,
     DocumentStructureResponse,
     MethodWalkthroughResponse,
     PodcastCue,
@@ -15,6 +17,7 @@ from app.models import (
     ReadingRouteResponse,
     SectionIntroResponse,
 )
+from app.services.definition_service import cited_references_for_term, extract_definition_index
 from app.services.structure_service import resolve_structure, structure_from_outline
 
 T = TypeVar("T", bound=BaseModel)
@@ -49,7 +52,7 @@ def _openai_client() -> OpenAI:
     settings = get_settings()
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
-    return OpenAI(api_key=settings.openai_api_key)
+    return OpenAI(api_key=settings.openai_api_key, timeout=45.0)
 
 
 def _llm_client() -> OpenAI:
@@ -57,7 +60,7 @@ def _llm_client() -> OpenAI:
     if settings.llm_provider == "gemini":
         if not settings.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured.")
-        return OpenAI(api_key=settings.gemini_api_key, base_url=GEMINI_BASE_URL)
+        return OpenAI(api_key=settings.gemini_api_key, base_url=GEMINI_BASE_URL, timeout=45.0)
     return _openai_client()
 
 
@@ -141,9 +144,42 @@ def _structured(system: str, prompt: str, model_type: type[T]) -> T:
     return response.output_parsed
 
 
+def _plain(system: str, prompt: str) -> str:
+    settings = get_settings()
+    client = _llm_client()
+    if settings.llm_provider == "gemini":
+        completion = client.chat.completions.create(model=settings.gemini_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
+        return completion.choices[0].message.content or ""
+    response = client.responses.create(model=settings.openai_model, input=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
+    return response.output_text or ""
+
+
 def reading_route(title: str, pages: list[dict[str, Any]]) -> ReadingRouteResponse:
     system = """You are a rigorous guided-reading tutor. Use only the supplied extracted PDF text and detection metadata. Never invent a page, heading, table, or figure. Use null for uncertain pages and explicitly mark uncertain detected items in prose. The compatibility field 'chapter_7_use' should describe how the source could support later study, review, or writing."""
     return _structured(system, f"Create a practical reading route for {title!r}.\n{_page_context(pages)}", ReadingRouteResponse)
+
+
+def _guided_context(pages: list[dict[str, Any]]) -> str:
+    settings = get_settings()
+    if len(pages) <= settings.guided_reading_max_direct_pages:
+        return _page_context(pages, 70_000)
+    summaries: list[str] = []
+    for start in range(0, len(pages), settings.guided_reading_max_direct_pages):
+        chunk = pages[start:start + settings.guided_reading_max_direct_pages]
+        page_numbers = [int(page["page_number"]) for page in chunk]
+        summary = _plain(
+            "Summarize only the supplied PDF pages for a later guided reading. Preserve page numbers, headings, explicit definitions, formulas, tables, figures, and method steps. Do not add outside knowledge.",
+            _page_context(chunk, 32_000),
+        )
+        summaries.append(f"--- CHUNK PAGES {min(page_numbers)}-{max(page_numbers)} ---\n{summary}")
+    key_snippets: list[str] = []
+    for page in pages:
+        items = [*(page.get("detected_formulas") or []), *(page.get("detected_tables") or []), *(page.get("detected_figures") or [])]
+        headings = "; ".join(page.get("detected_headings") or [])
+        text = " ".join((page.get("text") or "").split())[:600]
+        item_text = "; ".join(str(item.get("title_or_text") or "") for item in items)[:800]
+        key_snippets.append(f"PAGE {page['page_number']} headings={headings or 'none'} items={item_text or 'none'} snippet={text}")
+    return "\n\n".join(summaries) + "\n\nGROUNDED PAGE SNIPPETS\n" + "\n".join(key_snippets)
 
 
 def podcast_script(title: str, pages: list[dict[str, Any]], duration: int, mode: str = "normal", scope_type: str = "document", focus_text: str | None = None) -> PodcastResponse:
@@ -160,7 +196,7 @@ Rules for every cue:
 - Give every cue a unique stable cue_id, a realistic estimated_seconds value, and an importance level.
 
 Keep the existing compatibility fields. script must be the readable full transcript in the same order as the cues; page_directions, pause_points, and chapter_7_takeaways should remain concise."""
-    prompt = f"Create a roughly {duration}-minute {mode} guided-reading episode for {title!r}, scoped to {scope_type}{f' and focused on {focus_text!r}' if focus_text else ''}. Use only PAGE blocks in this selected range and cover the range sequentially rather than stopping at its first page. Break it into short cues suitable for listen, scroll, inspect, checkpoint, and continue playback.\n{_page_context(pages)}"
+    prompt = f"Create a roughly {duration}-minute {mode} guided-reading episode for {title!r}, scoped to {scope_type}{f' and focused on {focus_text!r}' if focus_text else ''}. Use only the selected range evidence and cover the range sequentially rather than stopping at its first page. For long ranges, build an introduction, subsection cues, detected item cues, checkpoints, and a summary from the supplied chunk summaries. Break it into short cues suitable for listen, scroll, inspect, checkpoint, and continue playback.\n{_guided_context(pages)}"
     result = _structured(system, prompt, PodcastResponse)
     result.cues = _ground_podcast_cues(result.cues, pages)
     return result
@@ -267,6 +303,35 @@ def concept_guide(title: str, pages: list[dict[str, Any]], concept: str) -> Conc
     return _structured(system, f"Trace {concept!r} through {title!r}.\n{_page_context(pages, 50_000)}", ConceptGuideResponse)
 
 
+def definition_index(title: str, scope_title: str, pages: list[dict[str, Any]], mode: str) -> DefinitionIndexResponse:
+    detected = extract_definition_index(title, scope_title, pages)
+    if mode == "quick" or not (detected.definitions or detected.symbols or detected.formulas):
+        return detected
+    system = """Clean and merge the supplied deterministic definition index using only the page evidence. Do not add a term, formula, symbol, exact page, or quotation that is absent from the deterministic candidates or evidence. Keep inferred wording labeled inferred_from_context. All read-more guidance must be either inside_document or cited_reference; external web search was not performed."""
+    result = _structured(system, f"Improve this definition index without inventing entries:\n{detected.model_dump(mode='json')}\nEvidence:\n{_page_context(pages, 45_000)}", DefinitionIndexResponse)
+    valid_pages = {int(page["page_number"]) for page in pages}
+    candidate_terms = {item.term.casefold() for item in detected.definitions}
+    result.definitions = [item for item in result.definitions if item.term.casefold() in candidate_terms and (item.page_defined is None or item.page_defined in valid_pages)]
+    result.symbols = [item for item in result.symbols if item.page_defined is None or item.page_defined in valid_pages]
+    result.formulas = [item for item in result.formulas if item.page_number is None or item.page_number in valid_pages]
+    result.page_range = detected.page_range
+    return result
+
+
+def concept_readthrough(title: str, pages: list[dict[str, Any]], term: str, mode: str) -> ConceptReadthroughResponse:
+    system = """Create a concept read-through grounded only in the supplied PDF pages. Cite locations through structured page fields. Never invent a formula, definition, visual, page, bibliography entry, or quotation. Distinguish pages inside the document from references cited by the document. External search was not performed. Guided cues must move through definition, usage, formula/visual, checkpoint, and summary pages when evidence exists."""
+    result = _structured(system, f"Create a {mode} read-through for {term!r} in {title!r}.\n{_page_context(pages, 55_000)}", ConceptReadthroughResponse)
+    result.guided_reading_cues = _ground_podcast_cues(result.guided_reading_cues, pages)
+    valid = {int(page["page_number"]) for page in pages}
+    for field in ("where_defined", "where_used", "read_more_inside_document", "suggested_references_from_document"):
+        values = getattr(result, field)
+        setattr(result, field, [item for item in values if item.page_number is None or item.page_number in valid])
+    detected_refs = cited_references_for_term(term, pages)
+    if detected_refs:
+        result.suggested_references_from_document = detected_refs
+    return result
+
+
 def update_structured_response(response_type: str, original: dict | str, instruction: str, context: dict, pages: list[dict[str, Any]]) -> tuple[dict | str, str]:
     model_types: dict[str, type[BaseModel]] = {
         "reading_route": ReadingRouteResponse,
@@ -275,6 +340,8 @@ def update_structured_response(response_type: str, original: dict | str, instruc
         "section_intro": SectionIntroResponse,
         "method_walkthrough": MethodWalkthroughResponse,
         "concept_guide": ConceptGuideResponse,
+        "definition_index": DefinitionIndexResponse,
+        "concept_readthrough": ConceptReadthroughResponse,
     }
     system = """Revise the supplied response according to the user's instruction while remaining grounded only in the supplied extracted PDF pages. Preserve the requested response schema. Never invent page numbers, quotes, formulas, tables, figures, chapters, or definitions. If the instruction cannot be fulfilled from the document, state the limitation in an appropriate field."""
     prompt = f"Response type: {response_type}\nInstruction: {instruction}\nCurrent context: {context}\nOriginal response: {original}\nDocument evidence:\n{_page_context(pages, 45_000)}"
@@ -298,6 +365,10 @@ def _relevant_pages(question: str, pages: list[dict[str, Any]], limit: int = 10)
         scored.append((score, page))
     ranked = [page for score, page in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0]
     return ranked[:limit] or pages[: min(limit, len(pages))]
+
+
+def related_pages(question: str, pages: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    return _relevant_pages(question, pages, limit)
 
 
 def answer_question(question: str, pages: list[dict[str, Any]]) -> str:

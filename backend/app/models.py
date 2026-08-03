@@ -103,7 +103,7 @@ class PodcastResponse(BaseModel):
 
 class AskRequest(DocumentRequest):
     question: str = Field(min_length=2, max_length=1000)
-    scope_type: Literal["document", "chapter", "section", "page"] = "document"
+    scope_type: Literal["document", "chapter", "section", "page", "page_range", "concept", "formula"] = "document"
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
 
@@ -266,9 +266,97 @@ class ConceptGuideResponse(BaseModel):
     gaps_not_found_in_document: list[str]
 
 
+class DefinitionIndexRequest(DocumentRequest):
+    scope_type: Literal["document", "chapter", "section", "page_range"] = "document"
+    scope_title: str | None = Field(default=None, max_length=300)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    mode: Literal["quick", "detailed"] = "quick"
+
+
+class ReadMoreItem(BaseModel):
+    label: str
+    page_number: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None = None
+    why_relevant: str
+    guidance_type: Literal["inside_document", "cited_reference"]
+
+
+class DefinitionItem(BaseModel):
+    definition_id: str
+    term: str
+    short_definition: str
+    technical_definition: str
+    page_defined: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None = None
+    quote_or_snippet: str | None = None
+    confidence: Literal["high", "medium", "low"]
+    where_used_pages: list[int]
+    related_terms: list[str]
+    related_formulas: list[str]
+    read_more_inside_document: list[ReadMoreItem]
+    source_type: Literal["explicit_definition", "inferred_from_context", "glossary", "symbol_list", "formula_context"]
+
+
+class SymbolDefinitionItem(BaseModel):
+    symbol: str
+    meaning: str
+    page_defined: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None = None
+    formula_context: str | None = None
+    units_if_available: str | None = None
+    confidence: Literal["high", "medium", "low"]
+
+
+class DefinitionFormulaItem(BaseModel):
+    formula_id: str
+    formula_text: str
+    label: str
+    page_number: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None = None
+    variables_explained: list[str]
+    variables_missing: list[str]
+    related_terms: list[str]
+    confidence: Literal["high", "medium", "low"]
+
+
+class DefinitionIndexResponse(BaseModel):
+    document_title: str
+    scope_title: str
+    page_range: list[int]
+    definitions: list[DefinitionItem]
+    symbols: list[SymbolDefinitionItem]
+    formulas: list[DefinitionFormulaItem]
+    suggested_learning_order: list[str]
+
+
+class ConceptReadthroughRequest(DocumentRequest):
+    definition_id: str | None = None
+    term: str = Field(min_length=1, max_length=300)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    learning_mode: Literal["normal", "simple_english", "technical", "formulas_only", "exam_study", "method_reproduction"] = "normal"
+
+
+class ConceptReadthroughResponse(BaseModel):
+    concept: str
+    simple_explanation: str
+    technical_explanation: str
+    where_defined: list[ReadMoreItem]
+    where_used: list[ReadMoreItem]
+    formulas_connected: list[str]
+    tables_figures_connected: list[str]
+    step_by_step_learning_path: list[str]
+    guided_reading_cues: list[PodcastCue]
+    checkpoint_questions: list[str]
+    read_more_inside_document: list[ReadMoreItem]
+    suggested_references_from_document: list[ReadMoreItem]
+    gaps_or_missing_background: list[str]
+
+
 class UpdateResponseRequest(DocumentRequest):
     response_id: UUID | None = None
-    original_response_type: Literal["reading_route", "guided_reading", "chapter_map", "section_intro", "method_walkthrough", "concept_guide", "ask_answer"]
+    original_response_type: Literal["reading_route", "guided_reading", "chapter_map", "section_intro", "method_walkthrough", "concept_guide", "definition_index", "concept_readthrough", "ask_answer"]
     original_response_json: dict | str
     user_instruction: str = Field(min_length=2, max_length=1000)
     current_context: dict = Field(default_factory=dict)

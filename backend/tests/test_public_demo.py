@@ -6,6 +6,8 @@ from fastapi import HTTPException
 from app.models import (
     AnalyticsEventCreate,
     ChapterItem,
+    DefinitionIndexResponse,
+    GuidedReadingRequest,
     DocumentStructureResponse,
     SectionIntroResponse,
     UpdateResponseRequest,
@@ -13,6 +15,7 @@ from app.models import (
 from app.routes import ai, analytics, documents
 from app.services import openai_service, supabase_service
 from app.services.pdf_service import _detected_items
+from app.services.definition_service import cited_references_for_term, extract_definition_index
 from app.services.structure_service import resolve_heading, resolve_structure
 
 
@@ -82,6 +85,61 @@ def test_formula_table_and_figure_detection() -> None:
     assert formulas and formulas[0]["item_type"] == "formula"
     assert tables and tables[0]["page_number"] == 35
     assert figures and figures[0]["printed_page_label"] == "2-1"
+
+
+def test_fhwa_named_headings_resolve_to_body_pages_and_printed_labels() -> None:
+    pages = [
+        {"page_number": 13, "printed_page_label": None, "text": "TABLE OF CONTENTS\n2.0 STRESS AND STRAIN IN SOILS ..... 2-1\n2.1 BASIC WEIGHT-VOLUME RELATIONSHIPS ..... 2-3", "detected_headings": []},
+        {"page_number": 57, "printed_page_label": "2-1", "text": "CHAPTER 2.0\nSTRESS AND STRAIN IN SOILS", "detected_headings": ["STRESS AND STRAIN IN SOILS"]},
+        {"page_number": 59, "printed_page_label": "2-3", "text": "2.1 BASIC WEIGHT-VOLUME RELATIONSHIPS\ne = Vv / Vs", "detected_headings": ["2.1 BASIC WEIGHT-VOLUME RELATIONSHIPS"]},
+    ]
+    stress = resolve_heading("STRESS AND STRAIN IN SOILS", pages)
+    relationships = resolve_heading("BASIC WEIGHT-VOLUME RELATIONSHIPS", pages)
+    assert stress[0] == 57
+    assert relationships[0] == 59
+    assert pages[1]["printed_page_label"] == "2-1"
+
+
+def test_definition_index_has_clickable_page_targets_and_formula_context() -> None:
+    pages = [{
+        "page_number": 5, "printed_page_label": "2-3",
+        "text": "Void ratio is defined as the ratio of void volume to solid volume. where e = void ratio",
+        "detected_formulas": [{"item_id": "formula-5-e", "title_or_text": "e = Vv / Vs", "label": "Equation 2-2", "confidence": "high"}],
+    }]
+    result = extract_definition_index("Soils", "Weight-volume relationships", pages)
+    validated = DefinitionIndexResponse.model_validate(result.model_dump())
+    assert validated.definitions[0].page_defined == 5
+    assert validated.definitions[0].quote_or_snippet
+    assert validated.formulas[0].page_number == 5
+    assert validated.formulas[0].printed_page_label == "2-3"
+
+
+def test_reference_suggestions_are_labeled_as_cited_document_references() -> None:
+    pages = [
+        {"page_number": 4, "text": "The void ratio relationship is discussed by Smith (Smith, 2005).", "detected_headings": []},
+        {"page_number": 20, "printed_page_label": "R-1", "text": "REFERENCES\nSmith, J. Soil Mechanics Handbook. 2005.", "detected_headings": ["REFERENCES"]},
+    ]
+    result = cited_references_for_term("void ratio", pages)
+    assert result
+    assert result[0].guidance_type == "cited_reference"
+    assert result[0].page_number == 20
+
+
+def test_scoped_pages_preserve_the_complete_selected_range() -> None:
+    pages = [{"page_number": number, "text": str(number)} for number in range(1, 15)]
+    selected = ai._scoped_pages(pages, 4, 11)
+    assert [page["page_number"] for page in selected] == list(range(4, 12))
+
+
+def test_guided_reading_large_range_returns_friendly_limit(monkeypatch) -> None:
+    pages = [{"page_number": number, "text": f"Page {number}"} for number in range(1, 42)]
+    monkeypatch.setattr(ai, "_pages_or_error", lambda *args: ({"title": "Manual"}, pages))
+    monkeypatch.setattr(ai, "enforce_daily_limit", lambda *args, **kwargs: None)
+    payload = GuidedReadingRequest(document_id="00000000-0000-0000-0000-000000000001", scope_type="section", page_start=1, page_end=41)
+    with pytest.raises(HTTPException) as raised:
+        ai.create_guided_reading(payload, "user-id", "session-123")
+    assert raised.value.status_code == 413
+    assert "40 pages or fewer" in raised.value.detail
 
 
 def test_section_intro_range_is_grounded(monkeypatch) -> None:

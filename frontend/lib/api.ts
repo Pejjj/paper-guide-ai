@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { getAnonymousSessionId } from "./analytics";
-import type { AIOutput, AIOutputVersion, ConceptGuide, DetectedDocumentItem, DocumentRecord, DocumentStructure, MethodWalkthrough, Note, PodcastScript, ReadingRoute, SectionIntro } from "./types";
+import type { AIOutput, AIOutputVersion, ConceptGuide, ConceptReadthrough, DefinitionIndex, DetectedDocumentItem, DocumentRecord, DocumentStructure, MethodWalkthrough, Note, PodcastScript, ReadingRoute, SectionIntro } from "./types";
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -55,7 +55,7 @@ async function parseError(response: Response): Promise<string> {
   return message;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, retry = true, timeoutMs = 60_000): Promise<T> {
   const auth = await authHeaders();
 
   const headers = new Headers(init.headers);
@@ -66,7 +66,15 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (init.signal) init.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  let response: Response;
+  try { response = await fetch(`${API_URL}${path}`, { ...init, headers, signal: controller.signal }); }
+  catch (error) {
+    if (controller.signal.aborted) throw new Error("This request took too long or was cancelled. Try a smaller section or generate a chapter overview.");
+    throw error;
+  } finally { window.clearTimeout(timer); }
 
   if (!response.ok) {
     const message = await parseError(response);
@@ -79,7 +87,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
     if (authProblem && retry && supabase) {
       await supabase.auth.signOut();
-      return request<T>(path, init, false);
+      return request<T>(path, init, false, timeoutMs);
     }
 
     throw new Error(message);
@@ -113,11 +121,17 @@ export const api = {
       body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }),
     }),
 
-  generateGuidedReading: (documentId: string, options: { scope_type?: string; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; learning_mode?: string } = {}) =>
-    request<PodcastScript>("/ai/guided-reading", { method: "POST", body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }) }),
+  generateGuidedReading: (documentId: string, options: { scope_type?: string; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; learning_mode?: string } = {}, signal?: AbortSignal) =>
+    request<PodcastScript>("/ai/guided-reading", { method: "POST", body: JSON.stringify({ document_id: documentId, duration_minutes: 8, ...options }), signal }, true, 120_000),
 
   getDetectedItems: (documentId: string, pageStart: number, pageEnd: number) =>
     request<DetectedDocumentItem[]>(`/documents/${documentId}/items?page_start=${pageStart}&page_end=${pageEnd}`),
+
+  generateDefinitionIndex: (documentId: string, input: { scope_type: string; scope_title?: string; page_start?: number | null; page_end?: number | null; mode?: "quick" | "detailed" }) =>
+    request<DefinitionIndex>("/ai/definition-index", { method: "POST", body: JSON.stringify({ document_id: documentId, ...input }) }, true, 120_000),
+
+  generateConceptReadthrough: (documentId: string, input: { definition_id?: string; term: string; page_start?: number | null; page_end?: number | null; learning_mode?: string }, signal?: AbortSignal) =>
+    request<ConceptReadthrough>("/ai/concept-readthrough", { method: "POST", body: JSON.stringify({ document_id: documentId, ...input }), signal }, true, 120_000),
 
   ask: (documentId: string, question: string, scope: { scope_type?: string; page_start?: number | null; page_end?: number | null } = {}) =>
     request<{ answer: string }>("/ai/ask", {

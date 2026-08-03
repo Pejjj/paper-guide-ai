@@ -3,9 +3,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Square } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AIOutput, AIOutputVersion, ChatMessage, ConceptGuide, DocumentStructure, MethodWalkthrough, PodcastScript, ReadingRoute, SectionIntro, SectionItem } from "@/lib/types";
+import type { AIOutput, AIOutputVersion, ChatMessage, ConceptGuide, ConceptReadthrough, DefinitionIndex, DefinitionItem, DocumentStructure, LearningScope, MethodWalkthrough, PodcastScript, ReadingRoute, SectionIntro, SectionItem } from "@/lib/types";
 
-export interface GuidedReadingRequestState { scope_type: "document" | "chapter" | "section" | "page_range" | "formula" | "method" | "concept"; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; request_id: string; }
+export interface GuidedReadingRequestState { scope_type: "document" | "chapter" | "section" | "page_range" | "formula" | "method" | "concept"; page_start?: number | null; page_end?: number | null; section_id?: string; chapter_id?: string; focus_text?: string; learning_mode?: "normal" | "simple_english" | "technical" | "formulas_only" | "exam_study" | "method_reproduction"; request_id: string; }
 
 type PlaybackStatus = "idle" | "playing" | "paused" | "complete";
 
@@ -18,6 +18,10 @@ export interface DocumentWorkspaceState {
   transcript: string;
   chatHistory: ChatMessage[];
   selectedSection: SectionItem | null;
+  selectedScope: LearningScope | null;
+  definitionIndexes: Record<string, DefinitionIndex>;
+  selectedDefinition: DefinitionItem | null;
+  conceptReadthrough: ConceptReadthrough | null;
   sectionIntros: Record<string, SectionIntro>;
   chapterMap: DocumentStructure | null;
   methodWalkthrough: MethodWalkthrough | null;
@@ -50,6 +54,10 @@ const emptyWorkspace = (title = ""): DocumentWorkspaceState => ({
   transcript: "",
   chatHistory: [],
   selectedSection: null,
+  selectedScope: null,
+  definitionIndexes: {},
+  selectedDefinition: null,
+  conceptReadthrough: null,
   sectionIntros: {},
   chapterMap: null,
   methodWalkthrough: null,
